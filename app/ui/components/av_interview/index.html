@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>AV Interview Component</title>
+    <style>
+        body { margin: 0; padding: 0; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; background-color: transparent; }
+        .video-container { position: relative; width: 100%; max-width: 480px; }
+        video { width: 100%; border-radius: 12px; border: 3px solid #333; background-color: #000; box-shadow: 0 4px 12px rgba(0,0,0,0.2); }
+        #status { margin-top: 15px; font-weight: bold; font-size: 16px; color: #666; padding: 8px 16px; border-radius: 20px; background: #f0f0f0; }
+        .recording { color: #fff !important; background: #e53935 !important; animation: blinker 1.5s linear infinite; }
+        .evaluating { color: #fff !important; background: #1e88e5 !important; }
+        @keyframes blinker { 50% { opacity: 0.7; } }
+        
+        #controls { margin-top: 15px; display: none; }
+        button { padding: 10px 20px; border-radius: 8px; border: none; background: #10b981; color: white; font-weight: bold; cursor: pointer; font-size: 16px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        button:hover { background: #059669; }
+    </style>
+</head>
+<body>
+    <div class="video-container">
+        <video id="videoElement" autoplay playsinline muted></video>
+    </div>
+    <div id="status">Waiting for AI...</div>
+    <div id="controls"><button id="doneBtn" onclick="forceSubmit()">Done Speaking</button></div>
+    <canvas id="canvasElement" style="display:none;"></canvas>
+
+    <script>
+        // Streamlit Component Boilerplate
+        function sendMessageToStreamlitClient(type, data) {
+            window.parent.postMessage({
+                isStreamlitMessage: true,
+                type: type,
+                ...data
+            }, "*");
+        }
+
+        function setFrameHeight() {
+            sendMessageToStreamlitClient("streamlit:setFrameHeight", {height: document.body.scrollHeight + 30});
+        }
+
+        function setComponentValue(value) {
+            sendMessageToStreamlitClient("streamlit:setComponentValue", {value: value});
+        }
+
+        let ai_speaking = true;
+
+        window.addEventListener("message", function(event) {
+            if (event.data.type === "streamlit:render") {
+                const args = event.data.args;
+                ai_speaking = args.ai_speaking;
+                
+                if (ai_speaking) {
+                    document.getElementById("status").innerText = "🎙️ AI is speaking...";
+                    document.getElementById("status").className = "";
+                    document.getElementById("controls").style.display = "none";
+                    if (recognition) recognition.stop();
+                } else {
+                    document.getElementById("status").innerText = "🔴 Listening... (Speak your answer)";
+                    document.getElementById("status").className = "recording";
+                    document.getElementById("controls").style.display = "block";
+                    if (recognition && !isListening) {
+                        try { recognition.start(); } catch(e){}
+                    }
+                }
+                setTimeout(setFrameHeight, 100);
+            }
+        });
+
+        // Tell Streamlit we're ready
+        sendMessageToStreamlitClient("streamlit:componentReady", {apiVersion: 1});
+
+        // Application Logic
+        const video = document.getElementById('videoElement');
+        const canvas = document.getElementById('canvasElement');
+        let recognition = null;
+        let isListening = false;
+        let finalTranscript = "";
+
+        // Start Webcam
+        navigator.mediaDevices.getUserMedia({ video: true, audio: false })
+            .then(function (stream) {
+                video.srcObject = stream;
+                setTimeout(setFrameHeight, 500);
+            })
+            .catch(function (error) {
+                document.getElementById('status').innerText = "Camera error: " + error.message;
+            });
+
+        // Initialize Speech Recognition
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (SpeechRecognition) {
+            recognition = new SpeechRecognition();
+            recognition.continuous = true;
+            recognition.interimResults = false;
+            recognition.lang = 'en-US';
+
+            recognition.onstart = function() {
+                isListening = true;
+            };
+
+            recognition.onresult = function(event) {
+                for (let i = event.resultIndex; i < event.results.length; ++i) {
+                    if (event.results[i].isFinal) {
+                        finalTranscript += event.results[i][0].transcript + " ";
+                    }
+                }
+            };
+
+            recognition.onerror = function(event) {
+                console.error("Speech recognition error", event.error);
+            };
+
+            recognition.onend = function() {
+                isListening = false;
+                // If it ends but AI isn't speaking, we restart it so it doesn't accidentally cut off the user
+                if (!ai_speaking && document.getElementById("status").className === "recording") {
+                    try { recognition.start(); } catch(e){}
+                }
+            };
+        } else {
+            document.getElementById('status').innerText = "Speech Recognition not supported in this browser. Please use Chrome.";
+        }
+
+        function forceSubmit() {
+            if (recognition) recognition.stop();
+            const text = finalTranscript.trim();
+            if (text === "") {
+                alert("We didn't catch that. Please speak your answer into the microphone.");
+                return;
+            }
+
+            // Take a snapshot
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+            const imgBase64 = canvas.toDataURL('image/jpeg', 0.7);
+
+            document.getElementById("status").innerText = "⚙️ Evaluating Answer...";
+            document.getElementById("status").className = "evaluating";
+            document.getElementById("controls").style.display = "none";
+
+            finalTranscript = ""; // reset
+
+            setComponentValue({
+                text: text,
+                proctor_img: imgBase64
+            });
+        }
+    </script>
+</body>
+</html>
