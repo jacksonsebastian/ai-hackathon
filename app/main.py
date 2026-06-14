@@ -4,6 +4,9 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 import streamlit as st
+
+st.set_page_config(page_title="AI Interviewer", layout="wide")
+
 from app.ui.styles.theme import apply_custom_theme
 
 # Apply global theme

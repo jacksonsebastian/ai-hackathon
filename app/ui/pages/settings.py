@@ -3,7 +3,7 @@ import streamlit as st
 from app.config import settings
 import os
 
-st.set_page_config(page_title="Settings", layout="wide")
+
 from app.ui.components.sidebar import render_sidebar
 render_sidebar()
 

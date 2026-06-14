@@ -6,7 +6,7 @@ from app.services.interview_service import InterviewService
 from app.ui.components.sidebar import render_sidebar
 from app.ui.components.code_editor import render_code_editor
 
-st.set_page_config(page_title="Coding Assessment", layout="wide")
+
 render_sidebar()
 
 st.title("💻 Coding Assessment")

@@ -1,11 +1,11 @@
-﻿"""Resume Upload Page."""
+"""Resume Upload Page."""
 import asyncio
 import streamlit as st
 from app.services.resume_parser import parse_resume, parse_resume_basic
 from app.ui.components.sidebar import render_sidebar
 from app.ui.components.resume_card import render_resume_card
 
-st.set_page_config(page_title="Upload Resume", layout="wide")
+
 render_sidebar()
 
 st.title("📄 Upload Candidate Resume")

@@ -6,7 +6,7 @@ from app.services.interview_service import InterviewService
 from app.ui.components.sidebar import render_sidebar
 from app.ui.components.chat import render_chat_history
 
-st.set_page_config(page_title="Active Interview", layout="wide")
+
 render_sidebar()
 
 st.title("🎙️ Active Interview Session")

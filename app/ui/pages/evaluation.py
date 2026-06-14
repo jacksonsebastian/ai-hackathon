@@ -6,7 +6,7 @@ from app.database import crud
 from app.ui.components.sidebar import render_sidebar
 from app.evaluation.report import generate_markdown_report
 
-st.set_page_config(page_title="Evaluation Results", layout="wide")
+
 render_sidebar()
 
 st.title("📈 Interview Evaluation & Reports")

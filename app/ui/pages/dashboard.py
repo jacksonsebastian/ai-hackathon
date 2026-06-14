@@ -1,11 +1,11 @@
-﻿"""Dashboard Page."""
+"""Dashboard Page."""
 import streamlit as st
 import pandas as pd
 from app.database import crud
 from app.ui.components.sidebar import render_sidebar
 from app.ui.components.metrics import render_metric_card
 
-st.set_page_config(page_title="Dashboard | AI Interviewer", layout="wide")
+
 render_sidebar()
 
 st.title("📊 Platform Dashboard")
