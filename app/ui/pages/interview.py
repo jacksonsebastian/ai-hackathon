@@ -39,7 +39,15 @@ with col2:
             session.id, resume.get_profile_text() if resume else ""
         ))
         st.session_state.current_question_id = q.id
-        st.session_state.messages.append({"role": "agent", "content": q.question_text})
+        
+        from app.services.audio_service import get_audio_service
+        audio_file = asyncio.run(get_audio_service().generate_speech(q.question_text, q.id))
+        
+        st.session_state.messages.append({
+            "role": "agent", 
+            "content": q.question_text,
+            "audio_file": audio_file
+        })
         st.rerun()
         
     if st.button("End Interview & Generate Report"):
@@ -57,28 +65,74 @@ with col1:
     st.subheader("Interview Chat")
     render_chat_history(st.session_state.messages)
     
-    if prompt := st.chat_input("Type your answer here..."):
-        if not st.session_state.session_id:
-            st.error("Please start a session first.")
-            st.stop()
-            
-        st.session_state.messages.append({"role": "user", "content": prompt})
+    st.subheader("Interview Chat")
+    render_chat_history(st.session_state.messages)
+    
+    if not st.session_state.session_id:
+        st.info("Click 'Start New Session' to begin.")
+        st.stop()
         
-        with st.spinner("Agent is evaluating and thinking..."):
-            resume = crud.get_resume(resume_id)
-            profile = resume.get_profile_text() if resume else ""
+    current_q_id = st.session_state.current_question_id
+    
+    # Display the current question heavily emphasized (caption)
+    current_msg = st.session_state.messages[-1] if st.session_state.messages else None
+    if current_msg and current_msg.get("role") == "agent":
+        st.markdown("### 🎙️ AI Interviewer is asking:")
+        st.info(f"**{current_msg['content']}**")
+        
+        # Audio autoplay logic (play once per question)
+        if "played_audio" not in st.session_state:
+            st.session_state.played_audio = set()
             
-            eval_res = asyncio.run(st.session_state.interview_service.submit_answer(
-                st.session_state.session_id,
-                st.session_state.current_question_id,
-                prompt,
-                profile
-            ))
-            
-            next_q = asyncio.run(st.session_state.interview_service.get_next_question(
-                st.session_state.session_id, profile
-            ))
-            st.session_state.current_question_id = next_q.id
-            
-            st.session_state.messages.append({"role": "agent", "content": next_q.question_text})
-        st.rerun()
+        if current_msg.get("audio_file"):
+            should_autoplay = current_q_id not in st.session_state.played_audio
+            st.audio(current_msg["audio_file"], autoplay=should_autoplay)
+            st.session_state.played_audio.add(current_q_id)
+
+    st.markdown("---")
+    st.markdown("### 📸 Identity Verification")
+    proctor_img = st.camera_input("Take a proctoring snapshot to unlock the microphone", key=f"cam_{current_q_id}")
+    
+    if proctor_img is not None:
+        st.success("✅ Identity verified. You may now record your answer.")
+        
+        st.markdown("### 🎤 Record Your Answer")
+        audio_buffer = st.audio_input("Record your answer", key=f"mic_{current_q_id}")
+        
+        if audio_buffer is not None:
+            with st.spinner("Transcribing your audio and evaluating..."):
+                from app.services.audio_service import get_audio_service
+                transcribed_text = get_audio_service().transcribe_audio(audio_buffer.getvalue())
+                
+                st.session_state.messages.append({
+                    "role": "user", 
+                    "content": transcribed_text,
+                    "proctor_img": proctor_img
+                })
+                
+                resume = crud.get_resume(resume_id)
+                profile = resume.get_profile_text() if resume else ""
+                
+                # Submit answer
+                eval_res = asyncio.run(st.session_state.interview_service.submit_answer(
+                    st.session_state.session_id,
+                    current_q_id,
+                    transcribed_text,
+                    profile
+                ))
+                
+                # Get next question
+                next_q = asyncio.run(st.session_state.interview_service.get_next_question(
+                    st.session_state.session_id, profile
+                ))
+                
+                # Generate AI Voice
+                audio_file = asyncio.run(get_audio_service().generate_speech(next_q.question_text, next_q.id))
+                
+                st.session_state.current_question_id = next_q.id
+                st.session_state.messages.append({
+                    "role": "agent", 
+                    "content": next_q.question_text,
+                    "audio_file": audio_file
+                })
+            st.rerun()

@@ -10,3 +10,6 @@ numpy<2.3.0
 httpx
 aiosqlite
 python-dotenv
+edge-tts
+SpeechRecognition
+pydub
