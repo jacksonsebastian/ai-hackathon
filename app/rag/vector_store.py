@@ -1,4 +1,4 @@
-﻿"""
+"""
 FAISS vector store wrapper for the RAG pipeline.
 """
 
@@ -30,6 +30,7 @@ class VectorStore:
         self._init_faiss()
 
     def _init_faiss(self):
+        self._vectors = []
         try:
             import faiss
             self._faiss = faiss
@@ -38,7 +39,6 @@ class VectorStore:
         except ImportError:
             logger.warning("FAISS not installed. Using numpy fallback.")
             self._faiss = None
-            self._vectors = []
 
     def add(self, chunks: list[Chunk]) -> int:
         """Add chunks to the vector store, generating embeddings."""
