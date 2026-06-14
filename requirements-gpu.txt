@@ -1,5 +1,4 @@
 vllm
-torch-rocm  
 faiss-gpu
 transformers>=4.45.0
 peft>=0.13.0
