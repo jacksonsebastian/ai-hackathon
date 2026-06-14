@@ -1,4 +1,4 @@
-﻿"""
+"""
 Resume parsing service.
 
 Handles PDF/DOCX upload, text extraction, and LLM-powered
@@ -129,10 +129,10 @@ async def parse_resume(
     )
 
     # Step 5: Store in database
-    crud.create_resume(resume)
-    logger.info(f"Resume parsed and stored: {resume.candidate_name} (id={resume.id})")
+    saved_resume = crud.create_resume(resume)
+    logger.info(f"Resume parsed and stored: {saved_resume.candidate_name} (id={saved_resume.id})")
 
-    return resume
+    return saved_resume
 
 
 def parse_resume_basic(file_bytes: bytes, filename: str) -> Resume:
@@ -154,5 +154,5 @@ def parse_resume_basic(file_bytes: bytes, filename: str) -> Resume:
         updated_at=now_utc(),
     )
     
-    crud.create_resume(resume)
-    return resume
+    saved_resume = crud.create_resume(resume)
+    return saved_resume
