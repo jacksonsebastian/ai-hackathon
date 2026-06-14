@@ -98,9 +98,25 @@ with col1:
     # Render the custom Streamlit AV component
     av_data = av_interview(ai_speaking=False, key=f"av_{current_q_id}")
     
-    if av_data is not None and av_data.get("text"):
+    if av_data is not None and av_data.get("audio_b64"):
         with st.spinner("Transcribing your audio and evaluating..."):
-            transcribed_text = av_data["text"]
+            import base64
+            
+            audio_b64 = av_data["audio_b64"]
+            # audio_b64 is like "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEA..."
+            if "," in audio_b64:
+                audio_b64 = audio_b64.split(",")[1]
+            
+            audio_bytes = base64.b64decode(audio_b64)
+            
+            from app.services.audio_service import get_audio_service
+            transcribed_text = get_audio_service().transcribe_audio(audio_bytes)
+            
+            # If transcript is empty or fails, give them a chance to try again
+            if not transcribed_text or transcribed_text.startswith("Error") or "Could not understand" in transcribed_text:
+                st.error(f"Transcription failed: {transcribed_text}")
+                st.stop()
+
             proctor_img = av_data.get("proctor_img")
             
             st.session_state.messages.append({

@@ -74,10 +74,12 @@
 
         // Application Logic
         const video = document.getElementById('videoElement');
-        const canvas = document.getElementById('canvasElement');
-        let recognition = null;
-        let isListening = false;
-        let finalTranscript = "";
+        // We will use AudioContext to manually record a WAV file to bypass browser WebSpeechAPI bugs
+        let audioCtx;
+        let processor;
+        let audioChunks = [];
+        let isRecording = false;
+        let sampleRate = 44100;
 
         // Start Webcam and Microphone
         navigator.mediaDevices.getUserMedia({ video: true, audio: true })
@@ -85,10 +87,13 @@
                 video.srcObject = stream;
                 setTimeout(setFrameHeight, 500);
 
-                // Set up Audio Visualizer
-                const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-                const analyser = audioCtx.createAnalyser();
+                // Set up Audio Context
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                sampleRate = audioCtx.sampleRate;
                 const source = audioCtx.createMediaStreamSource(stream);
+
+                // Visualizer
+                const analyser = audioCtx.createAnalyser();
                 source.connect(analyser);
                 analyser.fftSize = 256;
                 const bufferLength = analyser.frequencyBinCount;
@@ -99,14 +104,11 @@
                 function drawVisualizer() {
                     requestAnimationFrame(drawVisualizer);
                     analyser.getByteFrequencyData(dataArray);
-
                     canvasCtx.fillStyle = 'rgba(0, 0, 0, 0.2)';
                     canvasCtx.fillRect(0, 0, visCanvas.width, visCanvas.height);
-
                     const barWidth = (visCanvas.width / bufferLength) * 2.5;
                     let barHeight;
                     let x = 0;
-
                     for(let i = 0; i < bufferLength; i++) {
                         barHeight = dataArray[i] / 2;
                         canvasCtx.fillStyle = 'rgb(' + (barHeight + 100) + ',50,50)';
@@ -115,74 +117,102 @@
                     }
                 }
                 drawVisualizer();
+
+                // Raw Audio Recorder (ScriptProcessor)
+                processor = audioCtx.createScriptProcessor(4096, 1, 1);
+                source.connect(processor);
+                processor.connect(audioCtx.destination);
+                
+                processor.onaudioprocess = function(e) {
+                    if (isRecording) {
+                        // Copy the Float32Array so it doesn't get overwritten
+                        audioChunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+                    }
+                };
             })
             .catch(function (error) {
                 document.getElementById('status').innerText = "Camera/Mic error: " + error.message;
             });
 
-        // Initialize Speech Recognition
-        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-        if (SpeechRecognition) {
-            recognition = new SpeechRecognition();
-            recognition.continuous = true;
-            recognition.interimResults = true;
-            recognition.lang = 'en-US';
+        // Toggle recording state when AI finishes speaking
+        setInterval(() => {
+            if (!ai_speaking && !isRecording) {
+                audioChunks = []; // Clear previous audio
+                isRecording = true;
+            } else if (ai_speaking && isRecording) {
+                isRecording = false;
+            }
+        }, 100);
 
-            recognition.onstart = function() {
-                isListening = true;
+        function encodeWAV(samples, sampleRate) {
+            let buffer = new ArrayBuffer(44 + samples.length * 2);
+            let view = new DataView(buffer);
+            
+            const writeString = function(view, offset, string) {
+                for (let i = 0; i < string.length; i++) { view.setUint8(offset + i, string.charCodeAt(i)); }
             };
-
-            recognition.onresult = function(event) {
-                // Flash the status to show we are hearing words!
-                document.getElementById("status").style.background = "#ff5252";
-                setTimeout(() => document.getElementById("status").style.background = "#e53935", 200);
-
-                for (let i = event.resultIndex; i < event.results.length; ++i) {
-                    if (event.results[i].isFinal) {
-                        finalTranscript += event.results[i][0].transcript + " ";
-                    }
-                }
-            };
-
-            recognition.onerror = function(event) {
-                console.error("Speech recognition error", event.error);
-            };
-
-            recognition.onend = function() {
-                isListening = false;
-                // If it ends but AI isn't speaking, we restart it so it doesn't accidentally cut off the user
-                if (!ai_speaking && document.getElementById("status").className === "recording") {
-                    try { recognition.start(); } catch(e){}
-                }
-            };
-        } else {
-            document.getElementById('status').innerText = "Speech Recognition not supported in this browser. Please use Chrome.";
+            
+            writeString(view, 0, 'RIFF');
+            view.setUint32(4, 36 + samples.length * 2, true);
+            writeString(view, 8, 'WAVE');
+            writeString(view, 12, 'fmt ');
+            view.setUint32(16, 16, true);
+            view.setUint16(20, 1, true);
+            view.setUint16(22, 1, true);
+            view.setUint32(24, sampleRate, true);
+            view.setUint32(28, sampleRate * 2, true);
+            view.setUint16(32, 2, true);
+            view.setUint16(34, 16, true);
+            writeString(view, 36, 'data');
+            view.setUint32(40, samples.length * 2, true);
+            
+            let offset = 44;
+            for (let i = 0; i < samples.length; i++, offset += 2) {
+                let s = Math.max(-1, Math.min(1, samples[i]));
+                view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+            }
+            return new Blob([view], { type: 'audio/wav' });
         }
 
         function forceSubmit() {
-            if (recognition) recognition.stop();
-            const text = finalTranscript.trim();
-            if (text === "") {
-                alert("We didn't catch that. Please speak your answer into the microphone.");
+            isRecording = false; // Stop recording
+            
+            if (audioChunks.length === 0) {
+                alert("No audio recorded. Please ensure your microphone is working.");
                 return;
             }
 
-            // Take a snapshot
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
-            canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
-            const imgBase64 = canvas.toDataURL('image/jpeg', 0.7);
+            // Combine audio chunks
+            let totalLength = audioChunks.reduce((acc, chunk) => acc + chunk.length, 0);
+            let combinedSamples = new Float32Array(totalLength);
+            let offset = 0;
+            for (let chunk of audioChunks) {
+                combinedSamples.set(chunk, offset);
+                offset += chunk.length;
+            }
 
-            document.getElementById("status").innerText = "⚙️ Evaluating Answer...";
-            document.getElementById("status").className = "evaluating";
-            document.getElementById("controls").style.display = "none";
+            // Encode to WAV and read as Base64
+            const wavBlob = encodeWAV(combinedSamples, sampleRate);
+            const reader = new FileReader();
+            reader.readAsDataURL(wavBlob);
+            reader.onloadend = function() {
+                const audioBase64 = reader.result; // "data:audio/wav;base64,...."
 
-            finalTranscript = ""; // reset
+                // Take a snapshot
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+                const imgBase64 = canvas.toDataURL('image/jpeg', 0.7);
 
-            setComponentValue({
-                text: text,
-                proctor_img: imgBase64
-            });
+                document.getElementById("status").innerText = "⚙️ Transcribing & Evaluating Answer...";
+                document.getElementById("status").className = "evaluating";
+                document.getElementById("controls").style.display = "none";
+
+                setComponentValue({
+                    audio_b64: audioBase64,
+                    proctor_img: imgBase64
+                });
+            };
         }
     </script>
 </body>
