@@ -1,0 +1,2 @@
+2026-06-14 15:47:22 | [32m[1mINFO    [0m | database | [32mInitializing database at: data/interviews.db[0m
+2026-06-14 15:47:22 | [32m[1mINFO    [0m | database | [32mDatabase initialized with 9 tables: ['agent_logs', 'answers', 'coding_submissions', 'embeddings_metadata', 'evaluations', 'feedback_reports', 'interview_sessions', 'questions', 'resumes'][0m

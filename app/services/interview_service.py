@@ -1,0 +1,145 @@
+"""
+Interview orchestration service.
+Manages the lifecycle of an interview session, coordinating between
+the ConductorAgent and the database.
+"""
+
+from __future__ import annotations
+
+from typing import Optional
+
+from app.database import crud
+from app.database.models import InterviewSession, Question, Answer
+from app.agents.conductor import ConductorAgent
+from app.services.ai_service import AIService
+from app.utils.helpers import generate_id, now_utc
+from app.utils.logger import get_service_logger
+
+logger = get_service_logger("interview_service")
+
+
+class InterviewService:
+    """Core service for managing interview sessions."""
+
+    def __init__(self, ai_service: Optional[AIService] = None):
+        self.ai_service = ai_service or AIService()
+        # Dictionary to hold active conductors. In a real app, this might be a distributed cache.
+        self.active_conductors: dict[str, ConductorAgent] = {}
+
+    def start_session(self, resume_id: str, session_type: str = "full") -> InterviewSession:
+        """Create and start a new interview session."""
+        session = InterviewSession(
+            id=generate_id(),
+            resume_id=resume_id,
+            session_type=session_type,
+            status="in_progress",
+            started_at=now_utc(),
+        )
+        crud.create_session(session)
+        logger.info(f"Started new interview session {session.id} for resume {resume_id}")
+        return session
+
+    def get_conductor(self, session_id: str) -> ConductorAgent:
+        """Get or initialize the conductor agent for a session."""
+        if session_id not in self.active_conductors:
+            # Rehydrate state if needed (simplified for hackathon)
+            conductor = ConductorAgent(self.ai_service, session_id)
+            self.active_conductors[session_id] = conductor
+        return self.active_conductors[session_id]
+
+    async def get_next_question(self, session_id: str, candidate_profile: str) -> Question:
+        """Generate the next question using the conductor."""
+        conductor = self.get_conductor(session_id)
+        
+        if conductor.should_advance_round():
+            conductor.advance_round()
+            
+        crud.update_session_status(
+            session_id, 
+            status="in_progress", 
+            current_round=conductor.current_round
+        )
+
+        q_data = await conductor.generate_next_question(candidate_profile)
+        
+        question = Question(
+            id=generate_id(),
+            session_id=session_id,
+            agent_type=conductor.current_round,
+            category=q_data.get("category", ""),
+            question_text=q_data.get("question", "Could you tell me more about your experience?"),
+            difficulty=q_data.get("difficulty", "medium"),
+            expected_topics=q_data.get("expected_topics", []),
+            question_order=conductor.question_count + 1
+        )
+        crud.create_question(question)
+        return question
+
+    async def submit_answer(
+        self, session_id: str, question_id: str, answer_text: str, candidate_profile: str
+    ) -> dict:
+        """Process a candidate's answer and run evaluation."""
+        conductor = self.get_conductor(session_id)
+        
+        answer = Answer(
+            id=generate_id(),
+            question_id=question_id,
+            session_id=session_id,
+            answer_text=answer_text
+        )
+        crud.create_answer(answer)
+        
+        question = next((q for q in crud.get_questions_for_session(session_id) if q.id == question_id), None)
+        q_text = question.question_text if question else "Unknown question"
+
+        # Evaluate
+        eval_result = await conductor.evaluate_answer(q_text, answer_text, candidate_profile)
+        
+        from app.database.models import Evaluation
+        evaluation = Evaluation(
+            id=generate_id(),
+            answer_id=answer.id,
+            session_id=session_id,
+            question_id=question_id,
+            technical_accuracy=eval_result.get("technical_accuracy", 0),
+            depth_of_understanding=eval_result.get("depth_of_understanding", 0),
+            communication_clarity=eval_result.get("communication_clarity", 0),
+            problem_solving=eval_result.get("problem_solving", 0),
+            code_quality=eval_result.get("code_quality", 0),
+            reasoning=eval_result.get("reasoning", ""),
+            key_strengths=eval_result.get("key_strengths", []),
+            areas_to_improve=eval_result.get("areas_to_improve", [])
+        )
+        crud.create_evaluation(evaluation)
+        return eval_result
+
+    async def end_session(self, session_id: str, candidate_profile: str) -> dict:
+        """End the session and generate the final report."""
+        conductor = self.get_conductor(session_id)
+        crud.update_session_status(session_id, status="completed", completed_at=now_utc())
+        
+        report_data = await conductor.generate_final_report(candidate_profile)
+        
+        from app.database.models import FeedbackReport
+        report = FeedbackReport(
+            id=generate_id(),
+            session_id=session_id,
+            resume_id=crud.get_session(session_id).resume_id,
+            overall_score=report_data.get("overall_score", 0),
+            technical_score=report_data.get("technical_score", 0),
+            behavioral_score=report_data.get("behavioral_score", 0),
+            coding_score=report_data.get("coding_score", 0),
+            hiring_recommendation=report_data.get("hiring_recommendation", "maybe"),
+            strengths=report_data.get("strengths", []),
+            weaknesses=report_data.get("weaknesses", []),
+            improvement_roadmap=report_data.get("improvement_roadmap", {}),
+            summary=report_data.get("summary", ""),
+            detailed_feedback=report_data.get("detailed_feedback", "")
+        )
+        crud.create_feedback_report(report)
+        
+        # Cleanup
+        if session_id in self.active_conductors:
+            del self.active_conductors[session_id]
+            
+        return report_data
