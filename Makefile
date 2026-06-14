@@ -4,7 +4,7 @@ install:
 	pip install -r requirements.txt
 
 install-gpu:
-	pip install -r requirements.txt -r requirements-gpu.txt
+	pip install --ignore-installed blinker -r requirements.txt -r requirements-gpu.txt
 
 run:
 	streamlit run app/main.py
