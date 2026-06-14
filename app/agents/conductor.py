@@ -1,4 +1,4 @@
-﻿"""
+"""
 Interview Conductor Agent - Controls overall interview flow.
 
 Manages the multi-agent orchestration, deciding which agent
@@ -40,9 +40,9 @@ class ConductorAgent(BaseAgent):
         self.feedback = FeedbackAgent(ai_service, session_id)
 
         # Interview state
-        self.current_round = "introduction"
         self.question_count = 0
-        self.round_sequence = ["resume_analysis", "technical", "behavioral", "coding", "feedback"]
+        self.round_sequence = ["resume_analyzer", "technical", "behavioral", "coding", "feedback"]
+        self.current_round = self.round_sequence[0]
         self.round_index = 0
         self.questions_asked: list[str] = []
         self.evaluations: list[dict] = []
@@ -51,7 +51,7 @@ class ConductorAgent(BaseAgent):
     def get_current_agent(self) -> BaseAgent:
         """Get the agent for the current round."""
         agent_map = {
-            "resume_analysis": self.resume_analyzer,
+            "resume_analyzer": self.resume_analyzer,
             "technical": self.technical,
             "behavioral": self.behavioral,
             "coding": self.coding,
@@ -72,7 +72,7 @@ class ConductorAgent(BaseAgent):
     def should_advance_round(self) -> bool:
         """Check if current round should end."""
         limits = {
-            "resume_analysis": 1,
+            "resume_analyzer": 1,
             "technical": settings.agent.technical_question_count,
             "behavioral": settings.agent.behavioral_question_count,
             "coding": settings.agent.coding_question_count,
@@ -95,7 +95,7 @@ class ConductorAgent(BaseAgent):
         )
         combined_context = f"{context}\n{rag_context}" if rag_context else context
 
-        if self.current_round == "resume_analysis":
+        if self.current_round == "resume_analyzer":
             result = await self.resume_analyzer.analyze_resume(candidate_profile)
             if "personalized_questions" in result and result["personalized_questions"]:
                 q = result["personalized_questions"][0]
