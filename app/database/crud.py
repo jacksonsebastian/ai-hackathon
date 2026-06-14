@@ -24,8 +24,18 @@ def create_resume(resume: Resume) -> Resume:
         if getattr(resume, "content_hash", None):
             existing = conn.execute("SELECT * FROM resumes WHERE content_hash = ?", (resume.content_hash,)).fetchone()
             if existing:
-                logger.info(f"Resume already exists with hash {resume.content_hash}")
-                return Resume.from_db_row(dict(existing))
+                logger.info(f"Resume already exists with hash {resume.content_hash}, updating existing record.")
+                resume.id = existing["id"]
+                resume.created_at = existing["created_at"]
+                resume.updated_at = now_utc()
+                
+                row = resume.to_db_row()
+                update_cols = ", ".join([f"{k} = ?" for k in row.keys()])
+                values = list(row.values())
+                values.append(resume.id)
+                
+                conn.execute(f"UPDATE resumes SET {update_cols} WHERE id = ?", values)
+                return resume
                 
         if not resume.id:
             resume.id = generate_id()
