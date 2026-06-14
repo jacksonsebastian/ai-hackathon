@@ -16,9 +16,9 @@ with col1:
     st.subheader("Active Provider")
     provider_mode = st.radio(
         "Select Inference Mode",
-        ["mock", "vllm", "openai"],
-        index=["mock", "vllm", "openai"].index(settings.MODEL_PROVIDER) if settings.MODEL_PROVIDER in ["mock", "vllm", "openai"] else 0,
-        help="Mock: Local Dev (No GPU) | vLLM: Jupyter GPU Environment | OpenAI: Remote API"
+        ["vllm", "openai"],
+        index=["vllm", "openai"].index(settings.MODEL_PROVIDER) if settings.MODEL_PROVIDER in ["vllm", "openai"] else 0,
+        help="vLLM: Jupyter GPU Environment | OpenAI: Remote API"
     )
     
     if provider_mode != settings.MODEL_PROVIDER:
