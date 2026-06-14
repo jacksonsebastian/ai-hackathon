@@ -1,4 +1,4 @@
-﻿"""
+"""
 Mock LLM Provider for local development without GPU.
 
 Returns realistic template responses for each agent type,
@@ -101,17 +101,17 @@ class MockProvider(ModelProvider):
         sys_lower = system_prompt.lower()
         combined = f"{sys_lower} {prompt_lower}"
 
-        if any(w in combined for w in ("evaluat", "score", "assess", "rate")):
+        if "evaluat" in combined or "score" in combined or " assess" in combined:
             return MOCK_RESPONSES["evaluation"]
-        if any(w in combined for w in ("resume", "parse", "extract", "candidate profile")):
+        if "resume" in combined or "parse" in combined or "extract" in combined or "profile" in combined:
             return MOCK_RESPONSES["resume_analysis"]
-        if any(w in combined for w in ("feedback", "report", "recommendation", "roadmap")):
+        if "feedback" in combined or "report" in combined or "recommendation" in combined:
             return MOCK_RESPONSES["feedback_report"]
-        if any(w in combined for w in ("code", "implement", "algorithm", "function")):
+        if "code" in combined or "implement" in combined or "algorithm" in combined:
             return random.choice(MOCK_RESPONSES["coding_question"])
-        if any(w in combined for w in ("behavioral", "leadership", "teamwork", "conflict")):
+        if "behavioral" in combined or "leadership" in combined or "conflict" in combined:
             return random.choice(MOCK_RESPONSES["behavioral_question"])
-        if any(w in combined for w in ("technical", "system design", "database", "dsa")):
+        if "technical" in combined or "system design" in combined or "database" in combined:
             return random.choice(MOCK_RESPONSES["technical_question"])
         return MOCK_RESPONSES["default"]
 
