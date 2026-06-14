@@ -12,11 +12,11 @@ apply_custom_theme()
 # Define navigation
 pages = {
     "Navigation": [
-        st.Page("app/ui/pages/dashboard.py", title="Dashboard", icon="📊", default=True),
-        st.Page("app/ui/pages/resume_upload.py", title="Upload Resume", icon="📄"),
-        st.Page("app/ui/pages/interview.py", title="Active Interview", icon="🎙️"),
-        st.Page("app/ui/pages/evaluation.py", title="Results", icon="📈"),
-        st.Page("app/ui/pages/settings.py", title="Settings", icon="⚙️"),
+        st.Page("ui/pages/dashboard.py", title="Dashboard", icon="📊", default=True),
+        st.Page("ui/pages/resume_upload.py", title="Upload Resume", icon="📄"),
+        st.Page("ui/pages/interview.py", title="Active Interview", icon="🎙️"),
+        st.Page("ui/pages/evaluation.py", title="Results", icon="📈"),
+        st.Page("ui/pages/settings.py", title="Settings", icon="⚙️"),
     ]
 }
 
