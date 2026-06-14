@@ -51,7 +51,7 @@ with col2:
                     resume.get_profile_text() if resume else ""
                 ))
             st.success("Report generated!")
-            st.switch_page("app/ui/pages/evaluation.py")
+            st.switch_page("ui/pages/evaluation.py")
 
 with col1:
     st.subheader("Interview Chat")
