@@ -62,10 +62,16 @@ class InterviewService:
 
         q_data = await conductor.generate_next_question(candidate_profile)
         
+        # Sanitize agent_type to satisfy SQLite CHECK constraint
+        agent_type = conductor.current_round
+        allowed_types = ["technical", "behavioral", "coding", "resume_analyzer", "follow_up"]
+        if agent_type not in allowed_types:
+            agent_type = "follow_up"
+        
         question = Question(
             id=generate_id(),
             session_id=session_id,
-            agent_type=conductor.current_round,
+            agent_type=agent_type,
             category=q_data.get("category", ""),
             question_text=q_data.get("question", "Could you tell me more about your experience?"),
             difficulty=q_data.get("difficulty", "medium"),
