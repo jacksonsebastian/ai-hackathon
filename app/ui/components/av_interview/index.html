@@ -7,7 +7,8 @@
         body { margin: 0; padding: 0; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; background-color: transparent; }
         .video-container { position: relative; width: 100%; max-width: 480px; }
         video { width: 100%; border-radius: 12px; border: 3px solid #333; background-color: #000; box-shadow: 0 4px 12px rgba(0,0,0,0.2); }
-        #status { margin-top: 15px; font-weight: bold; font-size: 16px; color: #666; padding: 8px 16px; border-radius: 20px; background: #f0f0f0; }
+        #visualizer { position: absolute; bottom: 8px; left: 0; width: 100%; height: 60px; border-bottom-left-radius: 10px; border-bottom-right-radius: 10px; pointer-events: none; }
+        #status { margin-top: 15px; font-weight: bold; font-size: 16px; color: #666; padding: 8px 16px; border-radius: 20px; background: #f0f0f0; transition: background 0.2s; }
         .recording { color: #fff !important; background: #e53935 !important; animation: blinker 1.5s linear infinite; }
         .evaluating { color: #fff !important; background: #1e88e5 !important; }
         @keyframes blinker { 50% { opacity: 0.7; } }
@@ -20,6 +21,7 @@
 <body>
     <div class="video-container">
         <video id="videoElement" autoplay playsinline muted></video>
+        <canvas id="visualizer" width="480" height="60"></canvas>
     </div>
     <div id="status">Waiting for AI...</div>
     <div id="controls"><button id="doneBtn" onclick="forceSubmit()">Done Speaking</button></div>
@@ -77,14 +79,45 @@
         let isListening = false;
         let finalTranscript = "";
 
-        // Start Webcam
-        navigator.mediaDevices.getUserMedia({ video: true, audio: false })
+        // Start Webcam and Microphone
+        navigator.mediaDevices.getUserMedia({ video: true, audio: true })
             .then(function (stream) {
                 video.srcObject = stream;
                 setTimeout(setFrameHeight, 500);
+
+                // Set up Audio Visualizer
+                const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                const analyser = audioCtx.createAnalyser();
+                const source = audioCtx.createMediaStreamSource(stream);
+                source.connect(analyser);
+                analyser.fftSize = 256;
+                const bufferLength = analyser.frequencyBinCount;
+                const dataArray = new Uint8Array(bufferLength);
+                const visCanvas = document.getElementById("visualizer");
+                const canvasCtx = visCanvas.getContext("2d");
+
+                function drawVisualizer() {
+                    requestAnimationFrame(drawVisualizer);
+                    analyser.getByteFrequencyData(dataArray);
+
+                    canvasCtx.fillStyle = 'rgba(0, 0, 0, 0.2)';
+                    canvasCtx.fillRect(0, 0, visCanvas.width, visCanvas.height);
+
+                    const barWidth = (visCanvas.width / bufferLength) * 2.5;
+                    let barHeight;
+                    let x = 0;
+
+                    for(let i = 0; i < bufferLength; i++) {
+                        barHeight = dataArray[i] / 2;
+                        canvasCtx.fillStyle = 'rgb(' + (barHeight + 100) + ',50,50)';
+                        canvasCtx.fillRect(x, visCanvas.height - barHeight, barWidth, barHeight);
+                        x += barWidth + 1;
+                    }
+                }
+                drawVisualizer();
             })
             .catch(function (error) {
-                document.getElementById('status').innerText = "Camera error: " + error.message;
+                document.getElementById('status').innerText = "Camera/Mic error: " + error.message;
             });
 
         // Initialize Speech Recognition
@@ -92,7 +125,7 @@
         if (SpeechRecognition) {
             recognition = new SpeechRecognition();
             recognition.continuous = true;
-            recognition.interimResults = false;
+            recognition.interimResults = true;
             recognition.lang = 'en-US';
 
             recognition.onstart = function() {
@@ -100,6 +133,10 @@
             };
 
             recognition.onresult = function(event) {
+                // Flash the status to show we are hearing words!
+                document.getElementById("status").style.background = "#ff5252";
+                setTimeout(() => document.getElementById("status").style.background = "#e53935", 200);
+
                 for (let i = event.resultIndex; i < event.results.length; ++i) {
                     if (event.results[i].isFinal) {
                         finalTranscript += event.results[i][0].transcript + " ";
