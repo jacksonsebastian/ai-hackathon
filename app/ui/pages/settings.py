@@ -22,7 +22,7 @@ with col1:
     )
     
     if provider_mode != settings.MODEL_PROVIDER:
-        st.warning(f"You changed the provider to {provider_mode}. In a real app, this would write to .env and reload.")
+        st.warning(f"You changed the provider to {provider_mode}. Click Save Configuration to apply.")
 
 with col2:
     st.subheader("GPU Inference (vLLM)")
@@ -31,8 +31,28 @@ with col2:
     
 st.markdown("---")
 st.header("Interview Configuration")
-st.slider("Max Questions per Interview", 5, 30, settings.agent.max_total_questions)
-st.checkbox("Enable Adaptive Difficulty", value=settings.agent.enable_adaptive_difficulty)
+max_q = st.slider("Max Questions per Interview", 5, 30, settings.agent.max_total_questions)
+adaptive = st.checkbox("Enable Adaptive Difficulty", value=settings.agent.enable_adaptive_difficulty)
 
 if st.button("Save Configuration"):
-    st.success("Settings saved successfully! (In memory for this session)")
+    import dotenv
+    env_path = os.path.join(os.getcwd(), ".env")
+    
+    # Save to .env file permanently
+    dotenv.set_key(env_path, "MODEL_PROVIDER", provider_mode)
+    dotenv.set_key(env_path, "VLLM_BASE_URL", vllm_url)
+    dotenv.set_key(env_path, "VLLM_MODEL", vllm_model)
+    
+    # Update active settings in memory
+    settings.MODEL_PROVIDER = provider_mode
+    settings.vllm.base_url = vllm_url
+    settings.vllm.model_name = vllm_model
+    settings.agent.max_total_questions = max_q
+    settings.agent.enable_adaptive_difficulty = adaptive
+    
+    # Clear AI Service Provider cache so it initializes the new provider
+    from app.services.ai_service import reset_provider
+    reset_provider()
+    
+    st.success("Settings saved to .env successfully! Rerunning app...")
+    st.rerun()
