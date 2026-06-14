@@ -19,12 +19,20 @@ logger = get_db_logger()
 # ── Resume CRUD ──────────────────────────────────────────────
 
 def create_resume(resume: Resume) -> Resume:
-    if not resume.id:
-        resume.id = generate_id()
-    if not resume.created_at:
-        resume.created_at = now_utc()
-        resume.updated_at = resume.created_at
     with get_db() as conn:
+        # Check if resume with same content_hash already exists
+        if getattr(resume, "content_hash", None):
+            existing = conn.execute("SELECT * FROM resumes WHERE content_hash = ?", (resume.content_hash,)).fetchone()
+            if existing:
+                logger.info(f"Resume already exists with hash {resume.content_hash}")
+                return Resume.from_db_row(dict(existing))
+                
+        if not resume.id:
+            resume.id = generate_id()
+        if not resume.created_at:
+            resume.created_at = now_utc()
+            resume.updated_at = resume.created_at
+            
         row = resume.to_db_row()
         cols = ", ".join(row.keys())
         placeholders = ", ".join(["?"] * len(row))
