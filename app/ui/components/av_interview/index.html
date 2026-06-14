@@ -5,26 +5,31 @@
     <title>AV Interview Component</title>
     <style>
         body { margin: 0; padding: 0; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; background-color: transparent; }
-        .video-container { position: relative; width: 100%; max-width: 480px; }
-        video { width: 100%; border-radius: 12px; border: 3px solid #333; background-color: #000; box-shadow: 0 4px 12px rgba(0,0,0,0.2); }
-        #visualizer { position: absolute; bottom: 8px; left: 0; width: 100%; height: 60px; border-bottom-left-radius: 10px; border-bottom-right-radius: 10px; pointer-events: none; }
-        #status { margin-top: 15px; font-weight: bold; font-size: 16px; color: #666; padding: 8px 16px; border-radius: 20px; background: #f0f0f0; transition: background 0.2s; }
+        .video-container { position: relative; width: 100%; max-width: 480px; border-radius: 12px; border: 3px solid #333; background-color: #000; box-shadow: 0 4px 12px rgba(0,0,0,0.2); overflow: hidden; }
+        video { width: 100%; display: block; }
+        #visualizer { position: absolute; bottom: 0; left: 0; width: 100%; height: 80px; pointer-events: none; }
+        
+        .overlay-ui { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; padding-bottom: 20px; pointer-events: none; box-sizing: border-box; }
+        #status { margin-bottom: 15px; font-weight: bold; font-size: 14px; color: #333; padding: 6px 14px; border-radius: 20px; background: rgba(255, 255, 255, 0.9); transition: background 0.2s; pointer-events: auto; box-shadow: 0 2px 8px rgba(0,0,0,0.2); }
         .recording { color: #fff !important; background: #e53935 !important; animation: blinker 1.5s linear infinite; }
         .evaluating { color: #fff !important; background: #1e88e5 !important; }
-        @keyframes blinker { 50% { opacity: 0.7; } }
+        @keyframes blinker { 50% { opacity: 0.8; } }
         
-        #controls { margin-top: 15px; display: none; }
-        button { padding: 10px 20px; border-radius: 8px; border: none; background: #10b981; color: white; font-weight: bold; cursor: pointer; font-size: 16px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
-        button:hover { background: #059669; }
+        #controls { display: none; pointer-events: auto; }
+        button { padding: 10px 24px; border-radius: 30px; border: none; background: #ef4444; color: white; font-weight: bold; cursor: pointer; font-size: 15px; box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4); transition: transform 0.1s, background 0.2s; }
+        button:hover { background: #dc2626; transform: scale(1.05); }
+        button:active { transform: scale(0.95); }
     </style>
 </head>
 <body>
     <div class="video-container">
         <video id="videoElement" autoplay playsinline muted></video>
-        <canvas id="visualizer" width="480" height="60"></canvas>
+        <canvas id="visualizer" width="480" height="80"></canvas>
+        <div class="overlay-ui">
+            <div id="status">Waiting for AI...</div>
+            <div id="controls"><button id="doneBtn" onclick="forceSubmit()">Hang up & Submit</button></div>
+        </div>
     </div>
-    <div id="status">Waiting for AI...</div>
-    <div id="controls"><button id="doneBtn" onclick="forceSubmit()">Done Speaking</button></div>
     <canvas id="canvasElement" style="display:none;"></canvas>
 
     <script>
