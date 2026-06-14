@@ -6,6 +6,7 @@ pydantic
 rank-bm25
 plotly
 pandas
+numpy<2.3.0
 httpx
 aiosqlite
 python-dotenv
