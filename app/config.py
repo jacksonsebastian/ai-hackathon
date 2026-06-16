@@ -99,7 +99,7 @@ class InterviewConfig:
 @dataclass
 class VideoMonitoringConfig:
     """Video Proctoring and Integrity Analysis Settings."""
-    enabled: bool = False
+    enabled: bool = True
     capture_interval_seconds: int = 30
     enable_ai_analysis: bool = True
 
