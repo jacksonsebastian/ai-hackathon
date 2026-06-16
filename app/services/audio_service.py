@@ -1,85 +1,208 @@
 """
-Audio Service for handling Text-to-Speech (AI Voice) and Speech-to-Text (Candidate Answer).
-Uses edge-tts for high-quality, free AI voices.
-Uses SpeechRecognition for transcribing candidate audio.
+Audio Service — Remote API Client for Whisper (STT) + Kokoro TTS.
+
+All models run on the Jupyter Cloud GPU environment.
+This service is a thin HTTP client that sends requests to cloud endpoints.
+
+NO models are loaded locally.
+NO local inference.
+NO GPU required on local machine.
+
+Flow:
+    STT:  audio_bytes → HTTP POST → Cloud Whisper → transcript
+    TTS:  text → HTTP POST → Cloud Kokoro → audio_bytes
 """
 
 import os
-import asyncio
+import io
+import httpx
 from pathlib import Path
-from tempfile import NamedTemporaryFile
-import speech_recognition as sr
 from app.utils.logger import get_service_logger
 
 logger = get_service_logger("audio_service")
 
+
 class AudioService:
+    """
+    Thin HTTP client for remote Whisper (STT) and Kokoro (TTS) endpoints.
+    All inference happens on the Jupyter Cloud GPU environment.
+    """
+
     def __init__(self):
-        self.voice = "en-US-ChristopherNeural"  # Professional male AI voice
-        # Ensure audio temp dir exists
+        self.whisper_url = os.getenv("WHISPER_API_URL", "http://localhost:8001")
+        self.kokoro_url = os.getenv("KOKORO_API_URL", "http://localhost:8002")
+        self.kokoro_voice = os.getenv("KOKORO_VOICE", "af_heart")
+        self.kokoro_speed = float(os.getenv("KOKORO_SPEED", "1.0"))
+        self._client = httpx.Client(timeout=120.0)
+        self._async_client = httpx.AsyncClient(timeout=120.0)
         self.audio_dir = Path("app/static/audio")
         self.audio_dir.mkdir(parents=True, exist_ok=True)
-        self.recognizer = sr.Recognizer()
 
-    async def generate_speech(self, text: str, question_id: str) -> str:
-        """
-        Generate MP3 audio from text using edge-tts.
-        Returns the path to the generated MP3 file.
-        """
-        try:
-            import edge_tts
-        except ImportError:
-            logger.error("edge-tts not installed. Cannot generate audio.")
-            return ""
+    # ── Whisper Large V3 (Speech-to-Text) ──────────────────────
 
-        # Clean text for speech (remove markdown)
-        clean_text = text.replace("*", "").replace("#", "")
+    def transcribe_audio(self, audio_bytes: bytes, language: str = "en") -> str:
+        """
+        Transcribe candidate audio via remote Whisper Large V3 endpoint.
         
-        output_path = self.audio_dir / f"q_{question_id}.mp3"
-        if output_path.exists():
-            return str(output_path)
-
-        try:
-            communicate = edge_tts.Communicate(clean_text, self.voice)
-            await communicate.save(str(output_path))
-            logger.info(f"Generated speech for question {question_id} at {output_path}")
-            return str(output_path)
-        except Exception as e:
-            logger.error(f"Failed to generate speech: {e}")
-            return ""
-
-    def transcribe_audio(self, audio_bytes: bytes) -> str:
-        """
-        Transcribe audio bytes (from st.audio_input) to text using SpeechRecognition.
+        Sends audio bytes to Cloud GPU, receives transcript text.
+        
+        Args:
+            audio_bytes: WAV audio bytes from st.audio_input()
+            language: Language code for transcription
+            
+        Returns:
+            Transcribed text string
         """
         if not audio_bytes:
             return ""
 
         try:
-            # st.audio_input returns a WAV buffer, so we can use it directly
-            with NamedTemporaryFile(delete=False, suffix=".wav") as temp_wav:
-                temp_wav.write(audio_bytes)
-                temp_wav.flush()
-                
-                with sr.AudioFile(temp_wav.name) as source:
-                    audio_data = self.recognizer.record(source)
-                    text = self.recognizer.recognize_google(audio_data)
-                    logger.info(f"Successfully transcribed audio: {text}")
-                    
-            os.unlink(temp_wav.name)
-            return text
-        except sr.UnknownValueError:
-            logger.warning("Google Speech Recognition could not understand audio")
-            return "Could not understand audio. Please type your answer or try speaking clearer."
-        except sr.RequestError as e:
-            logger.error(f"Could not request results from Google Speech Recognition service; {e}")
-            return "Transcription service unavailable."
-        except Exception as e:
-            logger.error(f"Error during transcription: {e}")
-            return "Error transcribing audio."
+            files = {"audio": ("recording.wav", io.BytesIO(audio_bytes), "audio/wav")}
+            params = {"language": language}
 
-# Singleton instance
+            resp = self._client.post(
+                f"{self.whisper_url}/transcribe",
+                files=files,
+                params=params,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+
+            text = data.get("text", "")
+            duration = data.get("duration", 0)
+            logger.info(f"Whisper transcribed ({duration:.1f}s audio): {text[:80]}...")
+            return text if text.strip() else "[No speech detected — please try again or type your answer]"
+
+        except httpx.ConnectError:
+            logger.error(f"Cannot connect to Whisper endpoint at {self.whisper_url}")
+            return "[Whisper service unavailable — please type your answer]"
+        except Exception as e:
+            logger.error(f"Whisper transcription error: {e}")
+            return f"[Transcription error: {e}]"
+
+    async def transcribe_audio_async(self, audio_bytes: bytes, language: str = "en") -> str:
+        """Async version of transcribe_audio."""
+        if not audio_bytes:
+            return ""
+        try:
+            files = {"audio": ("recording.wav", io.BytesIO(audio_bytes), "audio/wav")}
+            params = {"language": language}
+            resp = await self._async_client.post(
+                f"{self.whisper_url}/transcribe", files=files, params=params
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return data.get("text", "")
+        except httpx.ConnectError:
+            return "[Whisper service unavailable — please type your answer]"
+        except Exception as e:
+            return f"[Transcription error: {e}]"
+
+    # ── Kokoro TTS (Text-to-Speech) ────────────────────────────
+
+    async def generate_speech(self, text: str, question_id: str) -> str:
+        """
+        Generate spoken audio via remote Kokoro TTS endpoint.
+        
+        Sends text to Cloud GPU, receives WAV audio, saves locally.
+        
+        Args:
+            text: Question text to speak
+            question_id: Unique ID for file caching
+            
+        Returns:
+            Path to saved WAV file, or empty string on failure
+        """
+        output_path = self.audio_dir / f"q_{question_id}.wav"
+        if output_path.exists():
+            return str(output_path)
+
+        try:
+            # Clean text for speech (remove markdown)
+            clean_text = text.replace("*", "").replace("#", "").replace("`", "")
+
+            payload = {
+                "text": clean_text,
+                "voice": self.kokoro_voice,
+                "speed": self.kokoro_speed,
+            }
+
+            resp = await self._async_client.post(
+                f"{self.kokoro_url}/synthesize",
+                json=payload,
+            )
+            resp.raise_for_status()
+
+            # Save WAV bytes to local file
+            with open(output_path, "wb") as f:
+                f.write(resp.content)
+
+            logger.info(f"Kokoro TTS audio saved: {output_path}")
+            return str(output_path)
+
+        except httpx.ConnectError:
+            logger.warning(f"Cannot connect to Kokoro TTS at {self.kokoro_url}")
+            return ""
+        except Exception as e:
+            logger.error(f"Kokoro TTS error: {e}")
+            return ""
+
+    def generate_speech_sync(self, text: str, question_id: str) -> str:
+        """Synchronous version of generate_speech."""
+        output_path = self.audio_dir / f"q_{question_id}.wav"
+        if output_path.exists():
+            return str(output_path)
+        try:
+            clean_text = text.replace("*", "").replace("#", "").replace("`", "")
+            payload = {
+                "text": clean_text,
+                "voice": self.kokoro_voice,
+                "speed": self.kokoro_speed,
+            }
+            resp = self._client.post(f"{self.kokoro_url}/synthesize", json=payload)
+            resp.raise_for_status()
+            with open(output_path, "wb") as f:
+                f.write(resp.content)
+            return str(output_path)
+        except Exception as e:
+            logger.error(f"Kokoro TTS sync error: {e}")
+            return ""
+
+    # ── Status Check ───────────────────────────────────────────
+
+    def get_model_status(self) -> dict:
+        """Check health of remote Whisper and Kokoro endpoints."""
+        whisper_status = "unknown"
+        kokoro_status = "unknown"
+
+        try:
+            resp = self._client.get(f"{self.whisper_url}/health", timeout=5)
+            whisper_status = "connected" if resp.status_code == 200 else "error"
+        except httpx.ConnectError:
+            whisper_status = "unreachable"
+        except Exception:
+            whisper_status = "error"
+
+        try:
+            resp = self._client.get(f"{self.kokoro_url}/health", timeout=5)
+            kokoro_status = "connected" if resp.status_code == 200 else "error"
+        except httpx.ConnectError:
+            kokoro_status = "unreachable"
+        except Exception:
+            kokoro_status = "error"
+
+        return {
+            "whisper": whisper_status,
+            "whisper_url": self.whisper_url,
+            "kokoro": kokoro_status,
+            "kokoro_url": self.kokoro_url,
+        }
+
+
+# ── Singleton ─────────────────────────────────────────────────
+
 _audio_service = AudioService()
+
 
 def get_audio_service() -> AudioService:
     return _audio_service

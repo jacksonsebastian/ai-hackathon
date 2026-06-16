@@ -138,17 +138,56 @@ async def parse_resume(
 def parse_resume_basic(file_bytes: bytes, filename: str) -> Resume:
     """
     Basic synchronous resume parsing without LLM.
-    Extracts text only, useful for quick uploads.
+    Uses regex to extract name, email, phone, and skills from raw text.
     """
+    import re
+    
     raw_text = extract_text(file_bytes, filename)
     ext = Path(filename).suffix.lower().lstrip(".")
+    
+    # Extract email
+    email_match = re.search(r'[\w.+-]+@[\w-]+\.[\w.-]+', raw_text)
+    email = email_match.group(0) if email_match else ""
+    
+    # Extract phone
+    phone_match = re.search(r'[\+]?[(]?[0-9]{1,4}[)]?[-\s./0-9]{7,15}', raw_text)
+    phone = phone_match.group(0).strip() if phone_match else ""
+    
+    # Extract candidate name (first non-empty line that's not an email/phone/url)
+    candidate_name = "Unknown"
+    for line in raw_text.split('\n'):
+        line = line.strip()
+        if line and len(line) > 2 and len(line) < 60:
+            # Skip lines that look like emails, phones, URLs
+            if '@' not in line and 'http' not in line and not re.match(r'^[\d\+\(]', line):
+                candidate_name = line
+                break
+    
+    # Extract skills using common tech keywords
+    common_skills = [
+        "Python", "JavaScript", "TypeScript", "Java", "C++", "C#", "Go", "Rust", "Ruby",
+        "React", "Angular", "Vue", "Node.js", "Express", "Django", "Flask", "FastAPI",
+        "Spring", "Docker", "Kubernetes", "AWS", "Azure", "GCP", "SQL", "PostgreSQL",
+        "MongoDB", "Redis", "Git", "Linux", "REST", "GraphQL", "HTML", "CSS",
+        "TensorFlow", "PyTorch", "Machine Learning", "Deep Learning", "AI",
+        "Agile", "Scrum", "CI/CD", "DevOps", "Microservices", "System Design",
+    ]
+    found_skills = []
+    text_lower = raw_text.lower()
+    for skill in common_skills:
+        if skill.lower() in text_lower:
+            found_skills.append(skill)
     
     resume = Resume(
         id=generate_id(),
         filename=filename,
         file_type=ext,
         raw_text=raw_text,
-        candidate_name="Pending Analysis",
+        candidate_name=candidate_name,
+        email=email,
+        phone=phone,
+        skills=found_skills,
+        summary=f"Resume parsed from {filename}. {len(found_skills)} skills detected.",
         content_hash=hash_content(raw_text),
         created_at=now_utc(),
         updated_at=now_utc(),
@@ -156,3 +195,4 @@ def parse_resume_basic(file_bytes: bytes, filename: str) -> Resume:
     
     saved_resume = crud.create_resume(resume)
     return saved_resume
+

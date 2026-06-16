@@ -2,6 +2,8 @@
 Interview orchestration service.
 Manages the lifecycle of an interview session, coordinating between
 the ConductorAgent and the database.
+
+Supports session persistence via conductor rehydration from DB.
 """
 
 from __future__ import annotations
@@ -23,7 +25,6 @@ class InterviewService:
 
     def __init__(self, ai_service: Optional[AIService] = None):
         self.ai_service = ai_service or AIService()
-        # Dictionary to hold active conductors. In a real app, this might be a distributed cache.
         self.active_conductors: dict[str, ConductorAgent] = {}
 
     def start_session(self, resume_id: str, session_type: str = "full") -> InterviewSession:
@@ -40,12 +41,73 @@ class InterviewService:
         return session
 
     def get_conductor(self, session_id: str) -> ConductorAgent:
-        """Get or initialize the conductor agent for a session."""
+        """Get or initialize the conductor agent for a session. Rehydrates from DB if needed."""
         if session_id not in self.active_conductors:
-            # Rehydrate state if needed (simplified for hackathon)
             conductor = ConductorAgent(self.ai_service, session_id)
+            
+            # Rehydrate state from database
+            self._rehydrate_conductor(conductor, session_id)
+            
             self.active_conductors[session_id] = conductor
         return self.active_conductors[session_id]
+
+    def _rehydrate_conductor(self, conductor: ConductorAgent, session_id: str):
+        """Restore conductor state from database for session persistence."""
+        try:
+            session = crud.get_session(session_id)
+            if not session:
+                return
+            
+            questions = crud.get_questions_for_session(session_id)
+            answers = crud.get_answers_for_session(session_id)
+            evaluations = crud.get_evaluations_for_session(session_id)
+            
+            if not questions:
+                return  # Fresh session, nothing to restore
+            
+            # Build Q&A pairs
+            answer_map = {a.question_id: a for a in answers}
+            questions_asked = []
+            qa_pairs = []
+            
+            for q in questions:
+                questions_asked.append(q.question_text)
+                answer = answer_map.get(q.id)
+                if answer:
+                    qa_pairs.append({
+                        "question": q.question_text,
+                        "answer": answer.answer_text,
+                        "category": q.agent_type,
+                    })
+            
+            eval_dicts = []
+            for ev in evaluations:
+                eval_dicts.append({
+                    "technical_accuracy": ev.technical_accuracy,
+                    "depth_of_understanding": ev.depth_of_understanding,
+                    "communication_clarity": ev.communication_clarity,
+                    "problem_solving": ev.problem_solving,
+                    "code_quality": ev.code_quality,
+                    "composite_score": ev.composite_score,
+                    "reasoning": ev.reasoning,
+                    "key_strengths": ev.key_strengths,
+                    "areas_to_improve": ev.areas_to_improve,
+                })
+            
+            # Determine current round from session
+            current_round = session.current_round or ""
+            
+            conductor.restore_state(
+                questions_asked=questions_asked,
+                qa_pairs=qa_pairs,
+                evaluations=eval_dicts,
+                current_round=current_round,
+            )
+            
+            logger.info(f"Rehydrated conductor for session {session_id}: {len(questions_asked)} questions")
+            
+        except Exception as e:
+            logger.warning(f"Failed to rehydrate conductor for {session_id}: {e}")
 
     async def get_next_question(self, session_id: str, candidate_profile: str) -> Question:
         """Generate the next question using the conductor."""
@@ -98,7 +160,7 @@ class InterviewService:
         question = next((q for q in crud.get_questions_for_session(session_id) if q.id == question_id), None)
         q_text = question.question_text if question else "Unknown question"
 
-        # Evaluate
+        # Evaluate with DeepSeek-R1
         eval_result = await conductor.evaluate_answer(q_text, answer_text, candidate_profile)
         
         from app.database.models import Evaluation
@@ -117,6 +179,15 @@ class InterviewService:
             areas_to_improve=eval_result.get("areas_to_improve", [])
         )
         crud.create_evaluation(evaluation)
+        
+        # Update session progress
+        crud.update_session_status(
+            session_id,
+            status="in_progress",
+            total_answered=conductor.question_count,
+            current_round=conductor.current_round,
+        )
+        
         return eval_result
 
     async def end_session(self, session_id: str, candidate_profile: str) -> dict:

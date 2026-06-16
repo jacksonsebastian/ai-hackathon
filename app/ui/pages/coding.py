@@ -3,11 +3,8 @@ import asyncio
 import streamlit as st
 from app.database import crud
 from app.services.interview_service import InterviewService
-from app.ui.components.sidebar import render_sidebar
 from app.ui.components.code_editor import render_code_editor
 
-
-render_sidebar()
 
 st.title("💻 Coding Assessment")
 
@@ -26,7 +23,7 @@ col1, col2 = st.columns([1, 1])
 with col1:
     st.subheader("Problem Statement")
     if st.button("Generate Problem"):
-        with st.spinner("Generating personalized coding problem..."):
+        with st.spinner("Generating personalized coding problem with DeepSeek-R1..."):
             service = InterviewService()
             conductor = service.get_conductor("temp_coding_session")
             resume = crud.get_resume(resume_id)
@@ -48,7 +45,7 @@ with col2:
     code = render_code_editor("# Write your python solution here\n\ndef solution():\n    pass")
     
     if st.button("Submit Code") and st.session_state.coding_problem:
-        with st.spinner("Evaluating code..."):
+        with st.spinner("DeepSeek-R1 evaluating code..."):
             service = InterviewService()
             conductor = service.get_conductor("temp_coding_session")
             eval_res = asyncio.run(conductor.coding.evaluate_code(

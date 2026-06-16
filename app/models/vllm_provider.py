@@ -1,4 +1,4 @@
-﻿"""
+"""
 vLLM Model Provider for GPU-accelerated inference.
 
 Connects to a local vLLM server via OpenAI-compatible API.
@@ -153,10 +153,18 @@ class VLLMProvider(ModelProvider):
             enhanced_prompt += f"\n\nRespond ONLY with valid JSON matching this schema:\n{schema_str}"
 
         result = await self.generate(enhanced_prompt, system_prompt, cfg)
-        parsed = extract_json_from_response(result.text)
+        
+        # Strip DeepSeek-R1 <think>...</think> tags before parsing JSON
+        import re
+        clean_text = re.sub(r'<think>.*?</think>', '', result.text, flags=re.DOTALL).strip()
+        
+        parsed = extract_json_from_response(clean_text)
+        if parsed is None:
+            # Try parsing the original text as well
+            parsed = extract_json_from_response(result.text)
         if parsed is None:
             logger.warning("Failed to parse structured output, returning raw text")
-            return {"raw_response": result.text}
+            return {"raw_response": clean_text}
         return parsed
 
     def get_model_info(self) -> dict:

@@ -1,0 +1,134 @@
+# ============================================================
+# AI Interviewer – Model Registry
+# ============================================================
+# All models run on the Jupyter Cloud GPU environment.
+# The local Streamlit app connects via HTTP APIs.
+# ============================================================
+
+models:
+
+  # ── Primary LLM ──────────────────────────────────────────
+  deepseek_r1:
+    name: "DeepSeek-R1"
+    model_id: "deepseek-ai/DeepSeek-R1"
+    provider: "vllm"
+    endpoint: "${VLLM_BASE_URL}"
+    port: 8000
+    tasks:
+      - resume_analysis
+      - resume_screening
+      - technical_questions
+      - coding_questions
+      - follow_up_questions
+      - technical_evaluation
+      - candidate_scoring
+      - hiring_recommendation
+      - final_report
+    config:
+      max_tokens: 2048
+      temperature: 0.7
+      top_p: 0.9
+      gpu_memory_utilization: 0.85
+      tensor_parallel_size: 1
+      dtype: "auto"
+
+  # ── Speech-to-Text ──────────────────────────────────────
+  whisper_large_v3:
+    name: "Whisper Large V3"
+    model_id: "openai/whisper-large-v3"
+    provider: "custom_api"
+    endpoint: "${WHISPER_API_URL}"
+    port: 8001
+    tasks:
+      - speech_to_text
+      - interview_transcription
+    config:
+      beam_size: 5
+      language: "en"
+      compute_type: "float16"
+      vad_filter: true
+      device: "cuda"
+
+  # ── Text-to-Speech ──────────────────────────────────────
+  kokoro_tts:
+    name: "Kokoro TTS"
+    model_id: "hexgrad/Kokoro-82M"
+    provider: "custom_api"
+    endpoint: "${KOKORO_API_URL}"
+    port: 8002
+    tasks:
+      - text_to_speech
+      - interview_voice
+      - spoken_questions
+      - spoken_feedback
+    config:
+      voice: "af_heart"
+      speed: 1.0
+      lang_code: "a"
+      sample_rate: 24000
+
+  # ── Embeddings ──────────────────────────────────────────
+  bge_m3:
+    name: "BGE-M3"
+    model_id: "BAAI/bge-m3"
+    provider: "custom_api"
+    endpoint: "${EMBEDDING_API_URL}"
+    port: 8003
+    tasks:
+      - resume_embeddings
+      - semantic_search
+      - rag_retrieval
+    config:
+      dimension: 1024
+      normalize: true
+      batch_size: 32
+      device: "cuda"
+
+  # ── Vector Store ────────────────────────────────────────
+  faiss:
+    name: "FAISS"
+    provider: "local"
+    tasks:
+      - vector_storage
+      - similarity_search
+    config:
+      index_type: "IndexFlatIP"
+      metric: "cosine"
+
+# ── Task-to-Model Routing ──────────────────────────────────
+routing:
+  # All LLM tasks → DeepSeek-R1
+  resume_analysis: deepseek_r1
+  resume_screening: deepseek_r1
+  technical_questions: deepseek_r1
+  coding_questions: deepseek_r1
+  follow_up_questions: deepseek_r1
+  technical_evaluation: deepseek_r1
+  candidate_scoring: deepseek_r1
+  hiring_recommendation: deepseek_r1
+  final_report: deepseek_r1
+
+  # Audio tasks
+  speech_to_text: whisper_large_v3
+  interview_transcription: whisper_large_v3
+  text_to_speech: kokoro_tts
+  interview_voice: kokoro_tts
+  spoken_questions: kokoro_tts
+  spoken_feedback: kokoro_tts
+
+  # Embedding tasks
+  resume_embeddings: bge_m3
+  semantic_search: bge_m3
+  rag_retrieval: bge_m3
+
+  # Vector storage
+  vector_storage: faiss
+  similarity_search: faiss
+
+# ── Fallback Chain ─────────────────────────────────────────
+# If a model is unavailable, fall back to these alternatives
+fallbacks:
+  whisper_large_v3: null    # No fallback – text input always available
+  kokoro_tts: null           # No fallback – text display always available
+  bge_m3: null               # No fallback – required for RAG
+  deepseek_r1: null          # Primary model – must be available

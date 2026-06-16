@@ -1,15 +1,33 @@
+# ============================================================
+# LOCAL MACHINE REQUIREMENTS (Thin Client)
+# ============================================================
+# No AI models loaded locally.
+# Only Streamlit UI + HTTP clients + database.
+# ============================================================
+
+# Streamlit UI
 streamlit==1.38.0
-faiss-cpu
-pymupdf
-python-docx
-pydantic
-rank-bm25
 plotly
 pandas
-numpy<2.3.0
+
+# HTTP client (for remote model API calls)
 httpx
+
+# Database
 aiosqlite
+
+# Document parsing (PDF/DOCX extraction only, no ML)
+pymupdf
+python-docx
+
+# Configuration
+pydantic
 python-dotenv
-edge-tts
-SpeechRecognition
-pydub
+pyyaml
+
+# Data processing (lightweight)
+numpy<2.3.0
+
+# RAG (local FAISS index only, embeddings from remote API)
+faiss-cpu
+rank-bm25

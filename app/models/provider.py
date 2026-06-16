@@ -1,8 +1,7 @@
-﻿"""
+"""
 Abstract Model Provider interface for LLM inference.
 
-Defines the contract that all providers (Mock, vLLM, OpenAI) must implement.
-This enables seamless switching between local dev (no GPU) and GPU environments.
+Defines the contract that all providers (vLLM, OpenAI-compatible) must implement.
 """
 
 from __future__ import annotations
@@ -39,10 +38,9 @@ class ModelProvider(abc.ABC):
     """
     Abstract base class for LLM model providers.
     
-    All AI inference goes through this interface, allowing:
-    - MockProvider for local development without GPU
-    - VLLMProvider for GPU-accelerated inference
-    - OpenAICompatibleProvider for any OpenAI-compatible API
+    All AI inference goes through this interface:
+    - VLLMProvider for GPU-accelerated inference (DeepSeek-R1)
+    - OpenAI-compatible endpoints
     """
 
     @abc.abstractmethod

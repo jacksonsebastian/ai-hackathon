@@ -1,0 +1,33 @@
+# ============================================================
+# JUPYTER CLOUD GPU REQUIREMENTS
+# ============================================================
+# Install these ONLY on the cloud GPU machine.
+# These packages are heavy and require GPU + CUDA.
+# ============================================================
+
+# vLLM for DeepSeek-R1 inference
+vllm>=0.6.0
+
+# Whisper Large V3 (Speech-to-Text)
+faster-whisper>=1.0.0
+
+# Kokoro TTS (Text-to-Speech)
+kokoro>=0.8
+soundfile
+scipy
+
+# BGE-M3 Embeddings
+sentence-transformers>=3.0.0
+FlagEmbedding
+
+# FAISS (GPU-accelerated)
+faiss-gpu
+
+# API Server
+fastapi
+uvicorn[standard]
+
+# Utilities
+numpy
+torch
+transformers

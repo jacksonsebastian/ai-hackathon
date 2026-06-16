@@ -3,11 +3,11 @@ Interview Conductor Agent - Controls overall interview flow.
 
 Manages the multi-agent orchestration, deciding which agent
 asks the next question and maintaining interview state.
+Uses ConversationMemory for contextual follow-ups.
 """
 
 from __future__ import annotations
 
-import random
 from typing import Optional
 
 from app.agents.base_agent import BaseAgent
@@ -18,6 +18,7 @@ from app.agents.rag_agent import RAGAgent
 from app.agents.coding import CodingAgent
 from app.agents.evaluator import EvaluatorAgent
 from app.agents.feedback import FeedbackAgent
+from app.memory.conversation import ConversationMemory
 from app.prompts.system_prompts import CONDUCTOR_SYSTEM_PROMPT
 from app.config import settings
 from app.services.ai_service import AIService
@@ -39,14 +40,20 @@ class ConductorAgent(BaseAgent):
         self.evaluator = EvaluatorAgent(ai_service, session_id)
         self.feedback = FeedbackAgent(ai_service, session_id)
 
+        # Conversation memory for contextual follow-ups
+        self.memory = ConversationMemory(max_history=20)
+
         # Interview state
         self.question_count = 0
-        self.round_sequence = ["resume_analyzer", "technical", "behavioral", "coding", "feedback"]
+        self.round_sequence = ["resume_analyzer", "technical", "behavioral", "coding"]
         self.current_round = self.round_sequence[0]
         self.round_index = 0
         self.questions_asked: list[str] = []
         self.evaluations: list[dict] = []
         self.qa_pairs: list[dict] = []
+        
+        # Per-round question tracking
+        self.round_question_counts: dict[str, int] = {r: 0 for r in self.round_sequence}
 
     def get_current_agent(self) -> BaseAgent:
         """Get the agent for the current round."""
@@ -55,7 +62,6 @@ class ConductorAgent(BaseAgent):
             "technical": self.technical,
             "behavioral": self.behavioral,
             "coding": self.coding,
-            "feedback": self.feedback,
         }
         return agent_map.get(self.current_round, self.technical)
 
@@ -64,13 +70,18 @@ class ConductorAgent(BaseAgent):
         self.round_index += 1
         if self.round_index < len(self.round_sequence):
             self.current_round = self.round_sequence[self.round_index]
+            # Reset round question count
+            self.round_question_counts.setdefault(self.current_round, 0)
         else:
             self.current_round = "completed"
         self.logger.info(f"Advanced to round: {self.current_round}")
         return self.current_round
 
     def should_advance_round(self) -> bool:
-        """Check if current round should end."""
+        """Check if current round should end based on per-round question count."""
+        if self.current_round == "completed":
+            return False
+            
         limits = {
             "resume_analyzer": 1,
             "technical": settings.agent.technical_question_count,
@@ -78,22 +89,61 @@ class ConductorAgent(BaseAgent):
             "coding": settings.agent.coding_question_count,
         }
         current_limit = limits.get(self.current_round, 5)
-        round_questions = sum(
-            1 for q in self.questions_asked
-            if True  # simplified; all questions count toward round
+        round_count = self.round_question_counts.get(self.current_round, 0)
+        return round_count >= current_limit
+
+    def restore_state(
+        self,
+        questions_asked: list[str],
+        qa_pairs: list[dict],
+        evaluations: list[dict],
+        current_round: str = "",
+        round_index: int = 0,
+    ):
+        """Restore conductor state from database (for session persistence)."""
+        self.questions_asked = questions_asked
+        self.qa_pairs = qa_pairs
+        self.evaluations = evaluations
+        self.question_count = len(questions_asked)
+        
+        if current_round and current_round in self.round_sequence:
+            self.current_round = current_round
+            self.round_index = self.round_sequence.index(current_round)
+        elif round_index < len(self.round_sequence):
+            self.round_index = round_index
+            self.current_round = self.round_sequence[round_index]
+        
+        # Rebuild per-round counts from qa_pairs
+        for qa in qa_pairs:
+            cat = qa.get("category", "technical")
+            self.round_question_counts[cat] = self.round_question_counts.get(cat, 0) + 1
+        
+        # Rebuild conversation memory
+        for qa in qa_pairs:
+            self.memory.add_message("interviewer", qa.get("question", ""))
+            self.memory.add_message("candidate", qa.get("answer", ""))
+        
+        self.logger.info(
+            f"State restored: {self.question_count} questions, round={self.current_round}"
         )
-        return self.question_count >= current_limit
 
     async def generate_next_question(self, candidate_profile: str, context: str = "") -> dict:
         """Generate the next interview question using the appropriate agent."""
         agent = self.get_current_agent()
 
+        # Get conversation context for follow-ups
+        conv_context = self.memory.get_context()
+
         # Get RAG context
-        rag_context = self.rag_agent.retrieve_context(
-            f"{self.current_round} {candidate_profile[:200]}",
-            top_k=3,
-        )
-        combined_context = f"{context}\n{rag_context}" if rag_context else context
+        try:
+            rag_context = self.rag_agent.retrieve_context(
+                f"{self.current_round} {candidate_profile[:200]}",
+                top_k=3,
+            )
+        except Exception:
+            rag_context = ""
+        
+        combined_context = "\n".join(filter(None, [context, rag_context, conv_context]))
 
         if self.current_round == "resume_analyzer":
             result = await self.resume_analyzer.analyze_resume(candidate_profile)
@@ -133,6 +183,14 @@ class ConductorAgent(BaseAgent):
         self.qa_pairs.append({"question": question, "answer": answer, "category": self.current_round})
         self.question_count += 1
         self.questions_asked.append(question)
+        
+        # Track per-round count
+        self.round_question_counts[self.current_round] = self.round_question_counts.get(self.current_round, 0) + 1
+        
+        # Update conversation memory
+        self.memory.add_message("interviewer", question)
+        self.memory.add_message("candidate", answer)
+        
         return result
 
     async def generate_final_report(self, candidate_profile: str) -> dict:
@@ -153,4 +211,5 @@ class ConductorAgent(BaseAgent):
             "questions_asked": self.question_count,
             "total_questions": total,
             "progress_pct": min(100, int(self.question_count / max(total, 1) * 100)),
+            "round_question_count": self.round_question_counts.get(self.current_round, 0),
         }

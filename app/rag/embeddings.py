@@ -1,81 +1,88 @@
-﻿"""
+"""
 Embedding pipeline for the RAG system.
 
-Supports sentence-transformers models with fallback to mock embeddings
-for local development without GPU.
+Calls remote BGE-M3 endpoint on Jupyter Cloud GPU.
+NO models loaded locally. All embedding computation happens on the cloud.
+
+Flow: text → HTTP POST → Cloud BGE-M3 → embedding vector
 """
 
 from __future__ import annotations
 
-import hashlib
-import json
+import os
+import httpx
 import numpy as np
-from pathlib import Path
 from typing import Optional
 
-from app.config import settings
 from app.utils.logger import get_rag_logger
 
 logger = get_rag_logger()
 
-_model = None
+# Remote endpoint URL
+_embedding_url = os.getenv("EMBEDDING_API_URL", "http://localhost:8003")
+_embedding_dim = int(os.getenv("EMBEDDING_DIMENSION", "1024"))
+_client: Optional[httpx.Client] = None
 
 
-def get_embedding_model():
-    """Load the embedding model (lazy singleton)."""
-    global _model
-    if _model is not None:
-        return _model
-    try:
-        from sentence_transformers import SentenceTransformer
-        _model = SentenceTransformer(
-            settings.embedding.model_name,
-            device=settings.embedding.device,
-        )
-        logger.info(f"Loaded embedding model: {settings.embedding.model_name}")
-        return _model
-    except ImportError:
-        logger.warning("sentence-transformers not installed, using mock embeddings")
-        return None
-    except Exception as e:
-        logger.warning(f"Failed to load embedding model: {e}, using mock embeddings")
-        return None
-
-
-def generate_mock_embedding(text: str, dim: int = 768) -> np.ndarray:
-    """Generate a deterministic mock embedding from text hash."""
-    h = hashlib.sha256(text.encode()).hexdigest()
-    seed = int(h[:8], 16)
-    rng = np.random.RandomState(seed)
-    vec = rng.randn(dim).astype(np.float32)
-    vec = vec / np.linalg.norm(vec)  # normalize
-    return vec
+def _get_client() -> httpx.Client:
+    """Lazy-initialize HTTP client."""
+    global _client
+    if _client is None:
+        _client = httpx.Client(timeout=60.0)
+    return _client
 
 
 def embed_texts(texts: list[str], batch_size: int = 32) -> np.ndarray:
     """
-    Generate embeddings for a list of texts.
-    Uses real model if available, otherwise mock embeddings.
+    Generate embeddings via remote BGE-M3 endpoint on cloud GPU.
+    
+    Sends texts over HTTP, receives embedding vectors.
+    No local model loading.
     """
-    model = get_embedding_model()
-
-    if model is not None:
-        logger.info(f"Embedding {len(texts)} texts with {settings.embedding.model_name}")
-        embeddings = model.encode(
-            texts,
-            batch_size=batch_size,
-            show_progress_bar=len(texts) > 10,
-            normalize_embeddings=settings.embedding.normalize,
-        )
-        return np.array(embeddings, dtype=np.float32)
-    else:
-        logger.info(f"Generating {len(texts)} mock embeddings (dim={settings.embedding.dimension})")
-        return np.array(
-            [generate_mock_embedding(t, settings.embedding.dimension) for t in texts],
-            dtype=np.float32,
-        )
+    if not texts:
+        return np.array([], dtype=np.float32).reshape(0, _embedding_dim)
+    
+    client = _get_client()
+    
+    try:
+        payload = {"texts": texts}
+        resp = client.post(f"{_embedding_url}/embed", json=payload)
+        resp.raise_for_status()
+        data = resp.json()
+        
+        embeddings = np.array(data["embeddings"], dtype=np.float32)
+        logger.info(f"BGE-M3 embedded {len(texts)} texts via cloud (dim={embeddings.shape[1]})")
+        return embeddings
+        
+    except httpx.ConnectError:
+        logger.error(f"Cannot connect to embedding service at {_embedding_url}")
+        logger.warning("Falling back to deterministic hash embeddings for offline mode")
+        return _fallback_embeddings(texts)
+    except Exception as e:
+        logger.error(f"Embedding API error: {e}")
+        return _fallback_embeddings(texts)
 
 
 def embed_single(text: str) -> np.ndarray:
-    """Generate embedding for a single text."""
-    return embed_texts([text])[0]
+    """Generate embedding for a single text via remote BGE-M3."""
+    result = embed_texts([text])
+    return result[0] if len(result) > 0 else np.zeros(_embedding_dim, dtype=np.float32)
+
+
+def _fallback_embeddings(texts: list[str]) -> np.ndarray:
+    """
+    Deterministic hash-based embeddings as offline fallback.
+    Only used when the cloud BGE-M3 endpoint is unreachable.
+    NOT suitable for production — just prevents crashes.
+    """
+    import hashlib
+    embeddings = []
+    for text in texts:
+        h = hashlib.sha256(text.encode()).hexdigest()
+        seed = int(h[:8], 16)
+        rng = np.random.RandomState(seed)
+        vec = rng.randn(_embedding_dim).astype(np.float32)
+        vec = vec / np.linalg.norm(vec)
+        embeddings.append(vec)
+    logger.warning(f"Used fallback hash embeddings for {len(texts)} texts (cloud BGE-M3 unavailable)")
+    return np.array(embeddings, dtype=np.float32)
