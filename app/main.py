@@ -29,11 +29,9 @@ can_view_results = state.get("evaluation_completed", False)
 # Define navigation dynamically based on state
 nav_items = [
     st.Page("ui/pages/dashboard.py", title="Dashboard", icon="📊", default=True),
-    st.Page("ui/pages/resume_upload.py", title="Upload Resume", icon="📄")
+    st.Page("ui/pages/resume_upload.py", title="Upload Resume", icon="📄"),
+    st.Page("ui/pages/interview.py", title="Active Interview", icon="🎙️")
 ]
-
-if has_active_interview and not is_completed:
-    nav_items.append(st.Page("ui/pages/interview.py", title="Active Interview", icon="🎙️"))
 
 if can_code and not is_completed:
     nav_items.append(st.Page("ui/pages/coding.py", title="Coding Assessment", icon="💻"))
