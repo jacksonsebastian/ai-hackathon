@@ -1,25 +1,84 @@
 """
-Resume parsing service.
+Resume parsing service — AI-First.
 
-Handles PDF/DOCX upload, text extraction, and LLM-powered
-structured data extraction into candidate profiles.
+Flow: Resume File → PDF/DOCX Extraction → Clean Text → DeepSeek-R1 → JSON → Validation → Database
+
+ALL resume understanding is done by DeepSeek-R1.
+No regex extraction. No hardcoded skills. No heuristics. No fabrication.
 """
 
 from __future__ import annotations
 
 import io
+import re
 from pathlib import Path
 from typing import Optional
 
 from app.database.models import Resume
 from app.database import crud
-from app.prompts.templates import build_resume_parse_prompt
 from app.services.ai_service import AIService
 from app.utils.helpers import generate_id, now_utc, hash_content, extract_json_from_response
 from app.utils.logger import get_service_logger
 
 logger = get_service_logger("resume_parser")
 
+# ── Resume Extraction Prompt ─────────────────────────────────
+
+RESUME_EXTRACTION_PROMPT = """You are an expert resume parser. Your job is to extract structured data from the resume text below.
+
+STRICT RULES:
+- Extract ONLY information explicitly present in the resume.
+- NEVER hallucinate, guess, infer, or fabricate any data.
+- If a field is not found in the resume, return null for that field.
+- Skills must come ONLY from the resume content, not from your training data.
+- Do NOT invent certifications, projects, or contact information.
+- Return ONLY valid JSON. No markdown, no code blocks, no explanations.
+
+RESUME TEXT:
+---
+{resume_text}
+---
+
+Return this exact JSON structure:
+{{
+    "candidate_name": "<full name or null if not found>",
+    "email": "<email or null if not found>",
+    "phone": "<phone or null if not found>",
+    "location": "<location or null if not found>",
+    "linkedin": "<linkedin URL or null if not found>",
+    "github": "<github URL or null if not found>",
+    "summary": "<2-3 sentence professional summary based on resume content>",
+    "skills": ["<only skills explicitly mentioned in resume>"],
+    "technologies": ["<only technologies/tools explicitly mentioned>"],
+    "experience": [
+        {{
+            "title": "<job title>",
+            "company": "<company name>",
+            "duration": "<time period>",
+            "description": "<key responsibilities and achievements>"
+        }}
+    ],
+    "education": [
+        {{
+            "degree": "<degree>",
+            "institution": "<university/college>",
+            "year": "<graduation year or period>"
+        }}
+    ],
+    "projects": [
+        {{
+            "name": "<project name>",
+            "description": "<what the project does>",
+            "technologies": ["<tech used>"]
+        }}
+    ],
+    "certifications": ["<only certifications explicitly listed>"],
+    "strengths": ["<strengths based on resume evidence>"],
+    "gaps": ["<areas where resume shows limited experience>"]
+}}"""
+
+
+# ── Text Extraction ──────────────────────────────────────────
 
 def extract_text_from_pdf(file_bytes: bytes) -> str:
     """Extract text from PDF using PyMuPDF."""
@@ -32,11 +91,9 @@ def extract_text_from_pdf(file_bytes: bytes) -> str:
         doc.close()
         return "\n".join(text_parts)
     except ImportError:
-        logger.warning("PyMuPDF not installed. Install with: pip install pymupdf")
-        return "[PDF extraction requires PyMuPDF. Install with: pip install pymupdf]"
+        raise RuntimeError("PyMuPDF not installed. Install with: pip install pymupdf")
     except Exception as e:
-        logger.error(f"PDF extraction error: {e}")
-        return f"[Error extracting PDF: {e}]"
+        raise RuntimeError(f"PDF extraction failed: {e}")
 
 
 def extract_text_from_docx(file_bytes: bytes) -> str:
@@ -55,11 +112,9 @@ def extract_text_from_docx(file_bytes: bytes) -> str:
                     text_parts.append(row_text)
         return "\n".join(text_parts)
     except ImportError:
-        logger.warning("python-docx not installed. Install with: pip install python-docx")
-        return "[DOCX extraction requires python-docx. Install with: pip install python-docx]"
+        raise RuntimeError("python-docx not installed. Install with: pip install python-docx")
     except Exception as e:
-        logger.error(f"DOCX extraction error: {e}")
-        return f"[Error extracting DOCX: {e}]"
+        raise RuntimeError(f"DOCX extraction failed: {e}")
 
 
 def extract_text(file_bytes: bytes, filename: str) -> str:
@@ -73,174 +128,121 @@ def extract_text(file_bytes: bytes, filename: str) -> str:
         raise ValueError(f"Unsupported file type: {ext}. Use PDF or DOCX.")
 
 
+def clean_text(raw_text: str) -> str:
+    """Clean extracted text: normalize whitespace, remove artifacts."""
+    # Collapse multiple blank lines
+    text = re.sub(r'\n{3,}', '\n\n', raw_text)
+    # Remove null bytes and control chars (except newline/tab)
+    text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', text)
+    return text.strip()
+
+
+# ── AI Resume Parser ─────────────────────────────────────────
+
 async def parse_resume(
     file_bytes: bytes,
     filename: str,
     ai_service: Optional[AIService] = None,
 ) -> Resume:
     """
-    Full resume parsing pipeline:
-    1. Extract raw text from PDF/DOCX
-    2. Use LLM to extract structured data (primary)
-    3. Fall back to regex if LLM fails
-    4. Store in database
-    5. Return Resume model
+    AI-first resume parsing pipeline.
+
+    Flow: File → Extract Text → Clean → DeepSeek-R1 → JSON → Validate → DB
+
+    All resume understanding is done by DeepSeek-R1.
+    No regex. No hardcoded skills. No heuristics.
     """
-    import re
     logger.info(f"Parsing resume: {filename}")
 
-    # Step 1: Extract raw text
+    # ── Step 1: Extract raw text ──
     raw_text = extract_text(file_bytes, filename)
-    if not raw_text or raw_text.startswith("["):
-        logger.warning(f"Limited text extraction for {filename}")
+    cleaned = clean_text(raw_text)
+    logger.info(f"Extracted {len(cleaned)} characters from {filename}")
 
-    logger.info(f"Extracted {len(raw_text)} characters from {filename}")
+    if len(cleaned) < 50:
+        raise ValueError(f"Resume text too short ({len(cleaned)} chars). Check file content.")
 
-    # Step 2: Check for duplicates
-    content_hash = hash_content(raw_text)
+    content_hash = hash_content(cleaned)
 
-    # Step 3: LLM-powered structured extraction (PRIMARY)
-    result = {}
-    try:
-        service = ai_service or AIService()
-        prompt = build_resume_parse_prompt(raw_text)
-        
-        result = await service.generate_structured(
-            prompt=prompt,
-            system_prompt="You are an expert resume parser. Return ONLY valid JSON. No explanations, no markdown, no code blocks.",
+    # ── Step 2: LLM extraction with retry ──
+    service = ai_service or AIService()
+    prompt = RESUME_EXTRACTION_PROMPT.format(resume_text=cleaned[:6000])
+
+    result = None
+    last_error = None
+
+    for attempt in range(3):
+        try:
+            llm_result = await service.generate_structured(
+                prompt=prompt,
+                system_prompt="You are a resume parser. Return ONLY valid JSON. No text before or after the JSON.",
+            )
+            
+            # Validate we got actual parsed data (not just raw_response)
+            if "raw_response" not in llm_result and llm_result.get("candidate_name"):
+                result = llm_result
+                logger.info(f"LLM extraction succeeded on attempt {attempt + 1}")
+                break
+            elif "raw_response" in llm_result:
+                # Try to extract JSON from raw response
+                parsed = extract_json_from_response(llm_result["raw_response"])
+                if parsed and parsed.get("candidate_name"):
+                    result = parsed
+                    logger.info(f"LLM extraction succeeded (from raw) on attempt {attempt + 1}")
+                    break
+                else:
+                    last_error = "LLM returned text but JSON extraction failed"
+                    logger.warning(f"Attempt {attempt + 1}: {last_error}")
+            else:
+                last_error = "LLM returned JSON but candidate_name is missing"
+                logger.warning(f"Attempt {attempt + 1}: {last_error}")
+                # Use what we got even without name
+                result = llm_result
+                break
+
+        except Exception as e:
+            last_error = str(e)
+            logger.warning(f"LLM attempt {attempt + 1} failed: {e}")
+
+    if result is None:
+        raise RuntimeError(
+            f"Resume parsing failed after 3 attempts. Last error: {last_error}. "
+            f"The AI model could not extract structured data from this resume."
         )
-        logger.info(f"LLM parse result keys: {list(result.keys())}")
-    except Exception as e:
-        logger.error(f"LLM resume parsing failed: {e}")
-        result = {}
 
-    # Step 4: If LLM failed, enrich with regex as safety net
-    if (
-        "raw_response" in result
-        or result.get("candidate_name", "Unknown") == "Unknown"
-        or not result.get("candidate_name")
-    ):
-        logger.info("LLM parsing incomplete — enriching with regex")
-        
-        if not result.get("candidate_name") or result.get("candidate_name") == "Unknown":
-            for line in raw_text.split('\n'):
-                line = line.strip()
-                if line and 2 < len(line) < 60:
-                    if '@' not in line and 'http' not in line and not re.match(r'^[\d\+\(]', line):
-                        if line.upper() not in {"SKILLS", "EXPERIENCE", "EDUCATION", "PROJECTS", "SUMMARY", "OBJECTIVE", "CERTIFICATIONS"}:
-                            result["candidate_name"] = line
-                            break
-        
-        if not result.get("email"):
-            em = re.search(r'[\w.+-]+@[\w-]+\.[\w.-]+', raw_text)
-            if em:
-                result["email"] = em.group(0)
-        
-        if not result.get("phone"):
-            ph = re.search(r'[\+]?[(]?\d{1,4}[)]?[-\s./\d]{7,15}', raw_text)
-            if ph:
-                result["phone"] = ph.group(0).strip()
-        
-        if not result.get("skills"):
-            skills_list = [
-                "Python", "JavaScript", "TypeScript", "Java", "C++", "React",
-                "Next.js", "Node.js", "Express", "Django", "Flask", "FastAPI",
-                "Docker", "Kubernetes", "AWS", "SQL", "PostgreSQL", "MongoDB",
-                "Redis", "Git", "HTML", "CSS", "REST", "GraphQL", "Tailwind",
-            ]
-            tl = raw_text.lower()
-            result["skills"] = [s for s in skills_list if s.lower() in tl]
+    # ── Step 3: Build Resume model ──
+    def safe_get(key, default=None):
+        """Get value from result, treating null/'Not Found' as missing."""
+        val = result.get(key, default)
+        if val is None or val == "Not Found" or val == "null":
+            return default
+        return val
 
-    # Step 5: Build Resume model
     ext = Path(filename).suffix.lower().lstrip(".")
     resume = Resume(
         id=generate_id(),
         filename=filename,
         file_type=ext,
         raw_text=raw_text,
-        candidate_name=result.get("candidate_name", "Unknown"),
-        email=result.get("email", ""),
-        phone=result.get("phone", ""),
-        skills=result.get("skills", []),
-        experience=result.get("experience", []),
-        education=result.get("education", []),
-        projects=result.get("projects", []),
-        certifications=result.get("certifications", []),
-        technologies=result.get("technologies", []),
-        summary=result.get("summary", raw_text[:500]),
-        strengths=result.get("strengths", []),
-        gaps=result.get("gaps", []),
+        candidate_name=safe_get("candidate_name", "Not Found"),
+        email=safe_get("email", ""),
+        phone=safe_get("phone", ""),
+        skills=safe_get("skills", []),
+        experience=safe_get("experience", []),
+        education=safe_get("education", []),
+        projects=safe_get("projects", []),
+        certifications=safe_get("certifications", []),
+        technologies=safe_get("technologies", []),
+        summary=safe_get("summary", ""),
+        strengths=safe_get("strengths", []),
+        gaps=safe_get("gaps", []),
         content_hash=content_hash,
         created_at=now_utc(),
         updated_at=now_utc(),
     )
 
-    # Step 6: Store in database
+    # ── Step 4: Store in database ──
     saved_resume = crud.create_resume(resume)
-    logger.info(f"Resume parsed: {saved_resume.candidate_name} (id={saved_resume.id})")
+    logger.info(f"Resume parsed by AI: {saved_resume.candidate_name} (id={saved_resume.id})")
 
     return saved_resume
-
-
-
-def parse_resume_basic(file_bytes: bytes, filename: str) -> Resume:
-    """
-    Basic synchronous resume parsing without LLM.
-    Uses regex to extract name, email, phone, and skills from raw text.
-    """
-    import re
-    
-    raw_text = extract_text(file_bytes, filename)
-    ext = Path(filename).suffix.lower().lstrip(".")
-    
-    # Extract email
-    email_match = re.search(r'[\w.+-]+@[\w-]+\.[\w.-]+', raw_text)
-    email = email_match.group(0) if email_match else ""
-    
-    # Extract phone
-    phone_match = re.search(r'[\+]?[(]?[0-9]{1,4}[)]?[-\s./0-9]{7,15}', raw_text)
-    phone = phone_match.group(0).strip() if phone_match else ""
-    
-    # Extract candidate name (first non-empty line that's not an email/phone/url)
-    candidate_name = "Unknown"
-    for line in raw_text.split('\n'):
-        line = line.strip()
-        if line and len(line) > 2 and len(line) < 60:
-            # Skip lines that look like emails, phones, URLs
-            if '@' not in line and 'http' not in line and not re.match(r'^[\d\+\(]', line):
-                candidate_name = line
-                break
-    
-    # Extract skills using common tech keywords
-    common_skills = [
-        "Python", "JavaScript", "TypeScript", "Java", "C++", "C#", "Go", "Rust", "Ruby",
-        "React", "Angular", "Vue", "Node.js", "Express", "Django", "Flask", "FastAPI",
-        "Spring", "Docker", "Kubernetes", "AWS", "Azure", "GCP", "SQL", "PostgreSQL",
-        "MongoDB", "Redis", "Git", "Linux", "REST", "GraphQL", "HTML", "CSS",
-        "TensorFlow", "PyTorch", "Machine Learning", "Deep Learning", "AI",
-        "Agile", "Scrum", "CI/CD", "DevOps", "Microservices", "System Design",
-    ]
-    found_skills = []
-    text_lower = raw_text.lower()
-    for skill in common_skills:
-        if skill.lower() in text_lower:
-            found_skills.append(skill)
-    
-    resume = Resume(
-        id=generate_id(),
-        filename=filename,
-        file_type=ext,
-        raw_text=raw_text,
-        candidate_name=candidate_name,
-        email=email,
-        phone=phone,
-        skills=found_skills,
-        summary=f"Resume parsed from {filename}. {len(found_skills)} skills detected.",
-        content_hash=hash_content(raw_text),
-        created_at=now_utc(),
-        updated_at=now_utc(),
-    )
-    
-    saved_resume = crud.create_resume(resume)
-    return saved_resume
-
