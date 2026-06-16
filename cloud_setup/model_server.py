@@ -25,15 +25,34 @@ import tempfile
 import numpy as np
 from pathlib import Path
 from typing import Optional
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, UploadFile, File, Query
 from fastapi.responses import Response, JSONResponse
 from pydantic import BaseModel
 
+
+@asynccontextmanager
+async def lifespan(application):
+    """Startup/shutdown lifecycle for the FastAPI app."""
+    preload = os.getenv("PRELOAD_MODELS", "false").lower() == "true"
+    if preload:
+        print("[Startup] Preloading all models...")
+        get_whisper()
+        get_kokoro()
+        get_embedding_model()
+        print("[Startup] All models preloaded!")
+    else:
+        print("[Startup] Models will be loaded on first request (lazy loading)")
+    yield
+    print("[Shutdown] Server shutting down.")
+
+
 app = FastAPI(
     title="AI Interviewer – Cloud Model Server",
     description="Whisper V3 + Kokoro TTS + BGE-M3 on GPU (ROCm compatible)",
     version="1.0.0",
+    lifespan=lifespan,
 )
 
 # ── Global Model Holders ─────────────────────────────────────
@@ -253,18 +272,7 @@ async def detailed_status():
     }
 
 
-@app.on_event("startup")
-async def startup_preload():
-    """Optionally preload models on startup for faster first request."""
-    preload = os.getenv("PRELOAD_MODELS", "false").lower() == "true"
-    if preload:
-        print("[Startup] Preloading all models...")
-        get_whisper()
-        get_kokoro()
-        get_embedding_model()
-        print("[Startup] All models preloaded!")
-    else:
-        print("[Startup] Models will be loaded on first request (lazy loading)")
+# Startup logic handled by lifespan context manager above
 
 
 if __name__ == "__main__":
