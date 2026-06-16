@@ -15,13 +15,15 @@ state = sync_st_state()
 if state.get("current_stage") == "completed":
     st.info("Interview already completed.")
     if st.button("View Results", type="primary"):
-        st.switch_page("ui/pages/evaluation.py")
+        st.session_state.redirect_to = "ui/pages/evaluation.py"
+        st.rerun()
     st.stop()
     
 if not state.get("behavioral_completed") and not state.get("technical_completed"):
     st.warning("You must complete the technical and behavioral rounds first.")
     if st.button("Return to Interview"):
-        st.switch_page("ui/pages/interview.py")
+        st.session_state.redirect_to = "ui/pages/interview.py"
+        st.rerun()
     st.stop()
 
 session_id = st.session_state.get("session_id")
@@ -115,4 +117,5 @@ with col2:
             
             st.success("Coding assessment complete. Generating final report...")
             time.sleep(2)
-            st.switch_page("ui/pages/evaluation.py")
+            st.session_state.redirect_to = "ui/pages/evaluation.py"
+            st.rerun()

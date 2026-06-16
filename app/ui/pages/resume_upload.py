@@ -30,4 +30,5 @@ if "parsed_resume" in st.session_state:
     render_resume_card(st.session_state["parsed_resume"])
     
     if st.button("Start Interview with this Candidate"):
-        st.switch_page("ui/pages/interview.py")
+        st.session_state.redirect_to = "ui/pages/interview.py"
+        st.rerun()

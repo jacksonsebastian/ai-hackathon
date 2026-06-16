@@ -18,9 +18,11 @@ if not completed_sessions:
         st.info("Your interview is currently in progress. Complete it to view the results.")
         if st.button("Return to Interview"):
             if state.get("current_stage") == "coding_round":
-                st.switch_page("ui/pages/coding.py")
+                st.session_state.redirect_to = "ui/pages/coding.py"
+                st.rerun()
             else:
-                st.switch_page("ui/pages/interview.py")
+                st.session_state.redirect_to = "ui/pages/interview.py"
+                st.rerun()
         st.stop()
     else:
         st.info("No completed interview sessions found. Please complete an interview first.")

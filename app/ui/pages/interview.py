@@ -136,13 +136,15 @@ if st.session_state.candidate_info is None and st.session_state.session_id is No
 if state.get("current_stage") == "completed":
     st.success("✅ Interview completed! View your results.")
     if st.button("View Results & Reports", type="primary"):
-        st.switch_page("ui/pages/evaluation.py")
+        st.session_state.redirect_to = "ui/pages/evaluation.py"
+        st.rerun()
     st.stop()
 
 if state.get("current_stage") == "coding_round":
     st.info("Technical and Behavioral rounds completed. Proceeding to Coding Assessment.")
     if st.button("Start Coding Assessment", type="primary"):
-        st.switch_page("ui/pages/coding.py")
+        st.session_state.redirect_to = "ui/pages/coding.py"
+        st.rerun()
     st.stop()
 
 if not st.session_state.session_id:
@@ -164,7 +166,8 @@ if round_name == "completed":
         "behavioral_completed": True,
         "technical_completed": True
     })
-    st.switch_page("ui/pages/coding.py")
+    st.session_state.redirect_to = "ui/pages/coding.py"
+    st.rerun()
 elif round_name == "coding" and current_state_stage != "coding_round":
     update_interview_state(st.session_state.session_id, {
         "current_stage": "coding_round",
@@ -173,7 +176,8 @@ elif round_name == "coding" and current_state_stage != "coding_round":
     })
     st.success("Technical and Behavioral rounds completed. Starting Coding Assessment.")
     time.sleep(2)
-    st.switch_page("ui/pages/coding.py")
+    st.session_state.redirect_to = "ui/pages/coding.py"
+    st.rerun()
 elif round_name == "behavioral" and current_state_stage != "behavioral_round":
     update_interview_state(st.session_state.session_id, {
         "current_stage": "behavioral_round",
@@ -377,7 +381,8 @@ with col_main:
                     "behavioral_completed": True,
                     "technical_completed": True
                 })
-                st.switch_page("ui/pages/coding.py")
+                st.session_state.redirect_to = "ui/pages/coding.py"
+                st.rerun()
             
             audio_file = asyncio.run(get_audio_service().generate_speech(
                 next_q.question_text, next_q.id
@@ -427,7 +432,8 @@ with col_main:
                     "behavioral_completed": True,
                     "technical_completed": True
                 })
-                st.switch_page("ui/pages/coding.py")
+                st.session_state.redirect_to = "ui/pages/coding.py"
+                st.rerun()
             
             audio_file = asyncio.run(get_audio_service().generate_speech(
                 next_q.question_text, next_q.id
