@@ -3,6 +3,7 @@ import asyncio
 import time
 import streamlit as st
 from app.database import crud
+from app.config import settings
 from app.services.interview_service import InterviewService
 from app.services.audio_service import get_audio_service
 from app.ui.components.chat import render_chat_history
