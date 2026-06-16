@@ -90,18 +90,30 @@ with col2:
             st.session_state.coding_feedback = eval_res
             
             # Save evaluation as part of session
-            # Since it's a coding round, we add it to conductor's evaluations manually
-            # or the conductor evaluates it
             resume = crud.get_resume(resume_id)
             profile = resume.get_profile_text() if resume else ""
             
-            # To ensure it gets logged properly in DB
+            # To ensure it gets logged properly in DB, create the question first
             q_text = st.session_state.coding_problem.get("question", "Coding Problem")
+            
+            from app.database.models import Question
+            from app.utils.helpers import generate_id
+            
+            new_q = Question(
+                id=generate_id(),
+                session_id=session_id,
+                agent_type="coding",
+                question_text=q_text,
+                category="Algorithms",
+                difficulty="medium",
+                question_order=999  # Put it at the end
+            )
+            crud.create_question(new_q)
             
             # Using submit_answer allows the evaluator to score it fully and records the answer
             asyncio.run(service.submit_answer(
                 session_id,
-                "coding_question_id", # Not ideal, but conductor expects an ID. It generates one usually.
+                new_q.id, 
                 code_to_eval,
                 profile
             ))
