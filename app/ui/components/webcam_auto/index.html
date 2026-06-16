@@ -26,6 +26,7 @@
     </style>
 </head>
 <body>
+        <div id="error-msg" style="color: red; padding: 10px; font-family: sans-serif; display: none; background: #222; border-radius: 8px;"></div>
     <video id="video" autoplay playsinline muted></video>
     <canvas id="canvas" width="640" height="480"></canvas>
 
@@ -37,6 +38,7 @@
         const video = document.getElementById('video');
         const canvas = document.getElementById('canvas');
         const context = canvas.getContext('2d');
+        const errorMsg = document.getElementById('error-msg');
 
         // Function to capture frame and send back to Python
         function captureFrame() {
@@ -71,6 +73,10 @@
         // Setup Webcam
         async function initWebcam() {
             try {
+                if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                    throw new Error("navigator.mediaDevices API not available. Are you in a secure context (HTTPS)? Does the iframe have allow='camera'?");
+                }
+
                 const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
                 video.srcObject = stream;
                 
@@ -82,8 +88,13 @@
                 });
             } catch (err) {
                 console.error("Webcam access denied or unavailable", err);
+                errorMsg.style.display = 'block';
+                video.style.display = 'none';
+                errorMsg.innerHTML = "<strong>Webcam Error:</strong><br>" + err.message + "<br><br><small>If you are using Chrome, ensure you allow camera access for this site.</small>";
+                
                 // Return a dummy value to avoid breaking Python if it waits forever
                 Streamlit.setComponentValue("error:webcam_denied");
+                setTimeout(() => Streamlit.setFrameHeight(), 100);
             }
         }
 
