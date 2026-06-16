@@ -69,6 +69,11 @@ if st.button("Save Configuration", type="primary"):
     # Save to .env file
     dotenv.set_key(env_path, "VLLM_BASE_URL", vllm_url)
     dotenv.set_key(env_path, "VLLM_MODEL", vllm_model)
+    dotenv.set_key(env_path, "MAX_TOTAL_QUESTIONS", str(max_q))
+    dotenv.set_key(env_path, "TECHNICAL_QUESTION_COUNT", str(tech_q))
+    dotenv.set_key(env_path, "BEHAVIORAL_QUESTION_COUNT", str(behav_q))
+    dotenv.set_key(env_path, "CODING_QUESTION_COUNT", str(code_q))
+    dotenv.set_key(env_path, "ENABLE_ADAPTIVE_DIFFICULTY", str(adaptive).lower())
     
     # Update active settings in memory
     settings.vllm.base_url = vllm_url

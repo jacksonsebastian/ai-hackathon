@@ -203,7 +203,7 @@ class ConductorAgent(BaseAgent):
 
     def get_progress(self) -> dict:
         """Get current interview progress."""
-        total = settings.agent.max_total_questions
+        total = 1 + settings.agent.technical_question_count + settings.agent.behavioral_question_count + settings.agent.coding_question_count
         return {
             "current_round": self.current_round,
             "round_index": self.round_index,

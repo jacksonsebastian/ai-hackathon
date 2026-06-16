@@ -135,6 +135,19 @@ class Settings:
             self.embedding.api_url = os.getenv("EMBEDDING_API_URL")
         if os.getenv("DATABASE_PATH"):
             self.database.path = os.getenv("DATABASE_PATH")
+            
+        # Agent configuration overrides
+        if os.getenv("MAX_TOTAL_QUESTIONS"):
+            self.agent.max_total_questions = int(os.getenv("MAX_TOTAL_QUESTIONS"))
+        if os.getenv("TECHNICAL_QUESTION_COUNT"):
+            self.agent.technical_question_count = int(os.getenv("TECHNICAL_QUESTION_COUNT"))
+        if os.getenv("BEHAVIORAL_QUESTION_COUNT"):
+            self.agent.behavioral_question_count = int(os.getenv("BEHAVIORAL_QUESTION_COUNT"))
+        if os.getenv("CODING_QUESTION_COUNT"):
+            self.agent.coding_question_count = int(os.getenv("CODING_QUESTION_COUNT"))
+        if os.getenv("ENABLE_ADAPTIVE_DIFFICULTY"):
+            self.agent.enable_adaptive_difficulty = os.getenv("ENABLE_ADAPTIVE_DIFFICULTY").lower() == "true"
+            
         self._ensure_directories()
 
     def _ensure_directories(self):
