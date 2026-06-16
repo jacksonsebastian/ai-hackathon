@@ -1,12 +1,11 @@
-"""Evaluation Results Page — Full Q&A Transcript with Scores."""
+"""Evaluation Results Page — HR-Friendly Report with Scores."""
 import streamlit as st
 import pandas as pd
 import plotly.express as px
 from app.database import crud
-from app.evaluation.report import generate_markdown_report
 from app.utils.state_machine import sync_st_state
 
-st.title("📈 Interview Evaluation & Reports")
+st.title("📈 Interview Evaluation Report")
 
 state = sync_st_state()
 
@@ -44,6 +43,13 @@ if not report:
     st.warning("Report is still generating or not found for this session. It may take a minute after completion.")
     st.stop()
 
+# ── PASS/FAIL Banner ──────────────────────────────────────────
+
+if report.hiring_recommendation.upper() == "PASS":
+    st.success("## ✅ FINAL DECISION: PASS")
+else:
+    st.error("## ❌ FINAL DECISION: FAIL")
+
 # ── Candidate Info ────────────────────────────────────────────
 
 if session and session.resume_id:
@@ -64,85 +70,95 @@ st.markdown("---")
 
 # ── Score Overview ────────────────────────────────────────────
 
-col1, col2 = st.columns([1, 1])
+st.subheader("📊 Performance Metrics")
 
-with col1:
-    st.subheader("Score Overview")
-    df = pd.DataFrame({
-        "Category": ["Overall", "Technical", "Behavioral", "Coding"],
-        "Score": [report.overall_score, report.technical_score, report.behavioral_score, report.coding_score]
-    })
-    fig = px.bar(df, x="Category", y="Score", text="Score", color="Category", range_y=[0, 100])
-    fig.update_layout(showlegend=False)
-    st.plotly_chart(fig, use_container_width=True)
+score_col1, score_col2, score_col3, score_col4 = st.columns(4)
 
-with col2:
-    st.subheader("Evaluation Details")
-    st.markdown(generate_markdown_report({
-        "hiring_recommendation": report.hiring_recommendation,
-        "overall_score": report.overall_score,
-        "technical_score": report.technical_score,
-        "behavioral_score": report.behavioral_score,
-        "coding_score": report.coding_score,
-        "summary": report.summary,
-        "strengths": report.strengths,
-        "weaknesses": report.weaknesses,
-        "detailed_feedback": report.detailed_feedback
-    }))
+with score_col1:
+    st.metric("Overall Score", f"{report.overall_score}/100")
+with score_col2:
+    st.metric("Technical Score", f"{report.technical_score}/100")
+with score_col3:
+    st.metric("Behavioral Score", f"{report.behavioral_score}/100")
+with score_col4:
+    st.metric("Coding Score", f"{report.coding_score}/100")
 
-# ── Full Q&A Transcript ──────────────────────────────────────
+# ── Summary & Strengths/Weaknesses ───────────────────────────
 
 st.markdown("---")
-st.subheader("📝 Full Interview Transcript")
 
-# Build answer lookup by question_id
-answer_map = {a.question_id: a for a in answers}
-eval_map = {e.question_id: e for e in evaluations}
+st.subheader("📝 Executive Summary")
+st.write(report.summary)
 
-if questions:
-    for i, q in enumerate(questions, 1):
-        answer = answer_map.get(q.id)
-        evaluation = eval_map.get(q.id)
-        
-        score_text = f" — Score: {evaluation.composite_score}/10" if evaluation else ""
-        with st.expander(f"Q{i} [{q.agent_type.title()}]{score_text}", expanded=i <= 3):
-            st.markdown(f"**🤖 Question:** {q.question_text}")
-            st.markdown(f"**Category:** {q.category} | **Difficulty:** {q.difficulty}")
+col_s, col_w = st.columns(2)
+
+with col_s:
+    st.subheader("💪 Key Strengths")
+    if report.strengths:
+        for strength in report.strengths:
+            st.markdown(f"- {strength}")
+    else:
+        st.write("No specific strengths noted.")
+
+with col_w:
+    st.subheader("🎯 Areas for Improvement")
+    if report.weaknesses:
+        for weakness in report.weaknesses:
+            st.markdown(f"- {weakness}")
+    else:
+        st.write("No specific weaknesses noted.")
+
+# ── Full Q&A Transcript (Hidden by default) ──────────────────
+
+st.markdown("---")
+
+with st.expander("🔍 Show Detailed Interview Transcript"):
+    # Build answer lookup by question_id
+    answer_map = {a.question_id: a for a in answers}
+    eval_map = {e.question_id: e for e in evaluations}
+
+    if questions:
+        for i, q in enumerate(questions, 1):
+            answer = answer_map.get(q.id)
+            evaluation = eval_map.get(q.id)
             
-            if answer:
-                st.markdown(f"**💬 Answer:** {answer.answer_text}")
-            else:
-                st.markdown("**💬 Answer:** *No answer recorded*")
-            
-            if evaluation:
-                eval_cols = st.columns(4)
-                with eval_cols[0]:
-                    st.metric("Technical", f"{evaluation.technical_accuracy}/10")
-                with eval_cols[1]:
-                    st.metric("Depth", f"{evaluation.depth_of_understanding}/10")
-                with eval_cols[2]:
-                    st.metric("Clarity", f"{evaluation.communication_clarity}/10")
-                with eval_cols[3]:
-                    st.metric("Problem Solving", f"{evaluation.problem_solving}/10")
+            score_text = f" — Score: {evaluation.composite_score}/10" if evaluation else ""
+            with st.expander(f"Q{i} [{q.agent_type.title()}]{score_text}"):
+                st.markdown(f"**🤖 Question:** {q.question_text}")
+                st.markdown(f"**Category:** {q.category} | **Difficulty:** {q.difficulty}")
                 
-                st.markdown(f"**Reasoning:** {evaluation.reasoning}")
-                if evaluation.key_strengths:
-                    st.markdown(f"**Strengths:** {', '.join(evaluation.key_strengths)}")
-                if evaluation.areas_to_improve:
-                    st.markdown(f"**To Improve:** {', '.join(evaluation.areas_to_improve)}")
-else:
-    st.info("No questions found for this session.")
+                if answer:
+                    st.markdown(f"**💬 Answer:** {answer.answer_text}")
+                else:
+                    st.markdown("**💬 Answer:** *No answer recorded*")
+                
+                if evaluation:
+                    eval_cols = st.columns(4)
+                    with eval_cols[0]:
+                        st.metric("Technical", f"{evaluation.technical_accuracy}/10")
+                    with eval_cols[1]:
+                        st.metric("Depth", f"{evaluation.depth_of_understanding}/10")
+                    with eval_cols[2]:
+                        st.metric("Clarity", f"{evaluation.communication_clarity}/10")
+                    with eval_cols[3]:
+                        st.metric("Problem Solving", f"{evaluation.problem_solving}/10")
+                    
+                    st.markdown(f"**Reasoning:** {evaluation.reasoning}")
+                    if evaluation.key_strengths:
+                        st.markdown(f"**Strengths:** {', '.join(evaluation.key_strengths)}")
+                    if evaluation.areas_to_improve:
+                        st.markdown(f"**To Improve:** {', '.join(evaluation.areas_to_improve)}")
+    else:
+        st.info("No questions found for this session.")
 
-# ── Per-Question Breakdown (legacy) ───────────────────────────
-
-st.markdown("---")
-st.subheader("📊 Score Distribution")
-if evaluations:
-    eval_df = pd.DataFrame([{
-        "Question": f"Q{i+1}",
-        "Score": ev.composite_score,
-        "Type": ev.question_id[:8],
-    } for i, ev in enumerate(evaluations)])
-    fig2 = px.line(eval_df, x="Question", y="Score", markers=True, range_y=[0, 10])
-    fig2.update_layout(title="Score Progression Across Questions")
-    st.plotly_chart(fig2, use_container_width=True)
+    # ── Per-Question Breakdown (legacy) ───────────────────────────
+    st.subheader("📊 Score Distribution")
+    if evaluations:
+        eval_df = pd.DataFrame([{
+            "Question": f"Q{i+1}",
+            "Score": ev.composite_score,
+            "Type": ev.question_id[:8],
+        } for i, ev in enumerate(evaluations)])
+        fig2 = px.line(eval_df, x="Question", y="Score", markers=True, range_y=[0, 10])
+        fig2.update_layout(title="Score Progression Across Questions")
+        st.plotly_chart(fig2, use_container_width=True)

@@ -1,4 +1,4 @@
-﻿"""
+"""
 System prompts for all AI agents in the interview system.
 """
 
@@ -110,15 +110,12 @@ Output your evaluation as valid JSON."""
 
 FEEDBACK_SYSTEM_PROMPT = """You are a Comprehensive Feedback AI.
 
-After analyzing all interview data, generate a complete feedback report including:
+After analyzing all interview data, generate a qualitative feedback report including:
 
 1. Executive Summary - Overall candidate assessment
 2. Strengths - Top strengths demonstrated during the interview
 3. Weaknesses - Areas needing improvement
-4. Category Scores - Technical, Behavioral, Coding breakdowns
-5. Hiring Recommendation - strong_hire / hire / maybe / no_hire
-6. Improvement Roadmap - Specific actionable steps for the candidate
-7. Interviewer Notes - Key observations from each interview section
+4. Improvement Roadmap - Specific actionable steps for the candidate
 
 Be honest, constructive, and specific. Provide actionable feedback that
 helps the candidate grow regardless of the hiring decision."""

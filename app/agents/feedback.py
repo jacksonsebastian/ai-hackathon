@@ -1,4 +1,4 @@
-﻿"""Feedback Agent - Generates comprehensive interview reports."""
+"""Feedback Agent - Generates comprehensive interview reports."""
 
 from __future__ import annotations
 from typing import Optional
@@ -23,13 +23,30 @@ class FeedbackAgent(BaseAgent):
     ) -> dict:
         prompt = build_feedback_prompt(candidate_profile, questions_answers, evaluations)
         result = await self.think_structured(prompt)
+        
+        # Mathematically calculate scores from evaluations
+        tech_scores = [ev.get("composite_score", 0) for qa, ev in zip(questions_answers, evaluations) if qa.get("category") == "technical"]
+        behav_scores = [ev.get("composite_score", 0) for qa, ev in zip(questions_answers, evaluations) if qa.get("category") == "behavioral"]
+        coding_scores = [ev.get("composite_score", 0) for qa, ev in zip(questions_answers, evaluations) if qa.get("category") == "coding"]
+        
+        # Convert from 10-point scale to 100-point scale
+        technical_score = int((sum(tech_scores) / max(len(tech_scores), 1)) * 10)
+        behavioral_score = int((sum(behav_scores) / max(len(behav_scores), 1)) * 10)
+        coding_score = int((sum(coding_scores) / max(len(coding_scores), 1)) * 10)
+        
+        all_scores = [ev.get("composite_score", 0) for ev in evaluations]
+        overall_score = int((sum(all_scores) / max(len(all_scores), 1)) * 10)
+        
+        # Determine PASS/FAIL
+        hiring_recommendation = "PASS" if overall_score >= 70 else "FAIL"
+
         # Ensure required fields
         defaults = {
-            "overall_score": 50,
-            "technical_score": 50,
-            "behavioral_score": 50,
-            "coding_score": 50,
-            "hiring_recommendation": "maybe",
+            "overall_score": overall_score,
+            "technical_score": technical_score,
+            "behavioral_score": behavioral_score,
+            "coding_score": coding_score,
+            "hiring_recommendation": hiring_recommendation,
             "strengths": [],
             "weaknesses": [],
             "improvement_roadmap": {},
@@ -39,4 +56,12 @@ class FeedbackAgent(BaseAgent):
         for key, default in defaults.items():
             if key not in result:
                 result[key] = default
+                
+        # Hard override the scores and recommendation from the LLM to ensure mathematical accuracy
+        result["overall_score"] = overall_score
+        result["technical_score"] = technical_score
+        result["behavioral_score"] = behavioral_score
+        result["coding_score"] = coding_score
+        result["hiring_recommendation"] = hiring_recommendation
+        
         return result

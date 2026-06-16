@@ -1,4 +1,4 @@
-﻿"""
+"""
 Prompt templates for question generation, evaluation, and feedback.
 """
 
@@ -127,11 +127,6 @@ Interview Q&A with Scores:
 
 Generate a detailed JSON report:
 {{
-    "overall_score": <0-100>,
-    "technical_score": <0-100>,
-    "behavioral_score": <0-100>,
-    "coding_score": <0-100>,
-    "hiring_recommendation": "strong_hire|hire|maybe|no_hire",
     "strengths": ["strength1", "strength2", "strength3"],
     "weaknesses": ["weakness1", "weakness2"],
     "improvement_roadmap": {{
@@ -139,8 +134,7 @@ Generate a detailed JSON report:
         "medium_term": ["action3", "action4"],
         "long_term": ["action5"]
     }},
-    "summary": "Executive summary paragraph",
-    "detailed_feedback": "Comprehensive multi-paragraph feedback"
+    "summary": "Executive summary paragraph summarizing the candidate's performance"
 }}"""
 
 
