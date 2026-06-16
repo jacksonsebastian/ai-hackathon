@@ -1,4 +1,4 @@
-﻿"""Evaluation Agent - Answer scoring with multi-dimensional rubrics."""
+"""Evaluation Agent - Answer scoring with multi-dimensional rubrics."""
 
 from __future__ import annotations
 from typing import Optional
@@ -22,14 +22,29 @@ class EvaluatorAgent(BaseAgent):
         agent_type: str = "technical",
         candidate_profile: str = "",
     ) -> dict:
+        # Handle skipped questions explicitly
+        if "Candidate skipped this question" in answer or answer.strip() == "" or "[Candidate skipped this question]" in answer:
+            return {
+                "technical_accuracy": 0.0,
+                "depth_of_understanding": 0.0,
+                "communication_clarity": 0.0,
+                "problem_solving": 0.0,
+                "code_quality": 0.0,
+                "composite_score": 0.0,
+                "reasoning": "Candidate skipped the question.",
+                "key_strengths": [],
+                "areas_to_improve": ["Attempt the question next time to demonstrate knowledge."],
+            }
+
         prompt = build_evaluation_prompt(question, answer, agent_type, candidate_profile)
         result = await self.think_structured(prompt)
+        
         # Ensure all score fields exist with defaults
         defaults = {
-            "technical_accuracy": 5.0,
-            "depth_of_understanding": 5.0,
-            "communication_clarity": 5.0,
-            "problem_solving": 5.0,
+            "technical_accuracy": 0.0,
+            "depth_of_understanding": 0.0,
+            "communication_clarity": 0.0,
+            "problem_solving": 0.0,
             "code_quality": 0.0,
             "reasoning": "Evaluation completed",
             "key_strengths": [],
@@ -38,6 +53,7 @@ class EvaluatorAgent(BaseAgent):
         for key, default in defaults.items():
             if key not in result:
                 result[key] = default
+                
         # Compute composite
         scores = [
             result["technical_accuracy"],

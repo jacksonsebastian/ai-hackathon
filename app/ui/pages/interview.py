@@ -6,6 +6,7 @@ from app.database import crud
 from app.services.interview_service import InterviewService
 from app.services.audio_service import get_audio_service
 from app.ui.components.chat import render_chat_history
+from app.utils.state_machine import sync_st_state, update_interview_state, init_session_state
 
 
 st.title("🎙️ Active Interview Session")
@@ -36,6 +37,9 @@ if not resume_id:
     if st.button("Go to Upload Resume"):
         st.switch_page("ui/pages/resume_upload.py")
     st.stop()
+
+# Sync with DB state
+state = sync_st_state()
 
 # ── Candidate Registration Form ──────────────────────────────
 
@@ -84,7 +88,6 @@ if st.session_state.candidate_info is None and st.session_state.session_id is No
                 }
                 st.session_state.interview_mode = mode_map.get(interview_mode, "hybrid")
                 
-                # Map interview type to session type
                 type_map = {
                     "Full Interview": "full",
                     "Technical": "technical",
@@ -98,6 +101,11 @@ if st.session_state.candidate_info is None and st.session_state.session_id is No
                     service = st.session_state.interview_service
                     session = service.start_session(resume_id, session_type)
                     st.session_state.session_id = session.id
+                    
+                    # Update State Machine
+                    init_session_state(session.id)
+                    update_interview_state(session.id, {"current_stage": "resume_round", "questions_answered": 0})
+                    
                     st.session_state.messages = [
                         {"role": "system", "content": f"Interview session started for {full_name}. Type: {interview_type}"}
                     ]
@@ -125,10 +133,16 @@ if st.session_state.candidate_info is None and st.session_state.session_id is No
 
 # ── Active Interview UI ──────────────────────────────────────
 
-if st.session_state.interview_completed:
+if state.get("current_stage") == "completed":
     st.success("✅ Interview completed! View your results.")
     if st.button("View Results & Reports", type="primary"):
         st.switch_page("ui/pages/evaluation.py")
+    st.stop()
+
+if state.get("current_stage") == "coding_round":
+    st.info("Technical and Behavioral rounds completed. Proceeding to Coding Assessment.")
+    if st.button("Start Coding Assessment", type="primary"):
+        st.switch_page("ui/pages/coding.py")
     st.stop()
 
 if not st.session_state.session_id:
@@ -140,6 +154,35 @@ service = st.session_state.interview_service
 conductor = service.get_conductor(st.session_state.session_id)
 progress = conductor.get_progress()
 
+# Update state tracking if round advanced
+current_state_stage = state.get("current_stage")
+round_name = progress["current_round"]
+
+if round_name == "completed":
+    update_interview_state(st.session_state.session_id, {
+        "current_stage": "coding_round",
+        "behavioral_completed": True,
+        "technical_completed": True
+    })
+    st.switch_page("ui/pages/coding.py")
+elif round_name == "coding" and current_state_stage != "coding_round":
+    update_interview_state(st.session_state.session_id, {
+        "current_stage": "coding_round",
+        "behavioral_completed": True,
+        "technical_completed": True
+    })
+    st.success("Technical and Behavioral rounds completed. Starting Coding Assessment.")
+    time.sleep(2)
+    st.switch_page("ui/pages/coding.py")
+elif round_name == "behavioral" and current_state_stage != "behavioral_round":
+    update_interview_state(st.session_state.session_id, {
+        "current_stage": "behavioral_round",
+        "technical_completed": True
+    })
+elif round_name == "technical" and current_state_stage != "technical_round":
+    update_interview_state(st.session_state.session_id, {"current_stage": "technical_round"})
+
+
 # ── Progress Bar & Round Badge ────────────────────────────────
 
 prog_col1, prog_col2, prog_col3 = st.columns([2, 1, 1])
@@ -147,8 +190,8 @@ with prog_col1:
     progress_pct = progress["progress_pct"] / 100
     st.progress(progress_pct, text=f"Question {progress['questions_asked'] + 1} of {progress['total_questions']}")
 with prog_col2:
-    round_name = progress["current_round"].replace("_", " ").title()
-    st.markdown(f"**🔄 Round:** `{round_name}`")
+    round_disp = progress["current_round"].replace("_", " ").title()
+    st.markdown(f"**🔄 Round:** `{round_disp}`")
 with prog_col3:
     st.markdown(f"**📊 Round** {progress['round_index'] + 1} / {progress['total_rounds']}")
 
@@ -198,18 +241,6 @@ with col_side:
         st.markdown(f"**📝** {info['interview_type']}")
     
     st.markdown("---")
-    
-    if st.button("🏁 End Interview & Generate Report", use_container_width=True):
-        if st.session_state.session_id:
-            with st.spinner("Generating comprehensive report with DeepSeek-R1..."):
-                resume = crud.get_resume(resume_id)
-                asyncio.run(service.end_session(
-                    st.session_state.session_id,
-                    resume.get_profile_text() if resume else ""
-                ))
-            st.session_state.interview_completed = True
-            st.success("Report generated!")
-            st.rerun()
 
 with col_main:
     # ── Chat History ──────────────────────────────────────────
@@ -284,7 +315,6 @@ with col_main:
             key=f"text_{current_q_id}",
             placeholder="Type your answer here...",
         )
-        # Prefer typed text if modified
         if text_input and text_input != answer_text:
             answer_text = text_input
         elif text_input:
@@ -312,7 +342,6 @@ with col_main:
     # ── Process Submission ────────────────────────────────────
     if submit_clicked and answer_text.strip():
         with st.spinner("🔄 DeepSeek-R1 evaluating answer & generating next question..."):
-            # Record answer
             st.session_state.messages.append({
                 "role": "user",
                 "content": answer_text,
@@ -329,32 +358,27 @@ with col_main:
                 profile,
             ))
             
-            # Show evaluation inline
             score = eval_res.get("composite_score", eval_res.get("technical_accuracy", "N/A"))
             st.toast(f"Answer scored: {score}/10")
             
-            # Check if interview should end
-            conductor = service.get_conductor(st.session_state.session_id)
-            prog = conductor.get_progress()
+            update_interview_state(st.session_state.session_id, {
+                "questions_answered": state.get("questions_answered", 0) + 1
+            })
             
-            if prog["current_round"] == "completed" or prog["questions_asked"] >= prog["total_questions"]:
-                st.session_state.messages.append({
-                    "role": "system",
-                    "content": "Interview complete! Generating final report..."
-                })
-                # Auto-generate report
-                asyncio.run(service.end_session(
-                    st.session_state.session_id, profile
-                ))
-                st.session_state.interview_completed = True
-                st.rerun()
-            
-            # Generate next question
             next_q = asyncio.run(service.get_next_question(
                 st.session_state.session_id, profile
             ))
             
-            # Generate AI voice for question
+            # Re-check progress
+            conductor = service.get_conductor(st.session_state.session_id)
+            if conductor.current_round == "coding":
+                update_interview_state(st.session_state.session_id, {
+                    "current_stage": "coding_round",
+                    "behavioral_completed": True,
+                    "technical_completed": True
+                })
+                st.switch_page("ui/pages/coding.py")
+            
             audio_file = asyncio.run(get_audio_service().generate_speech(
                 next_q.question_text, next_q.id
             ))
@@ -372,10 +396,9 @@ with col_main:
     
     if skip_clicked:
         with st.spinner("Skipping... generating next question..."):
-            # Submit empty answer
             st.session_state.messages.append({
                 "role": "user",
-                "content": "[Question skipped]",
+                "content": "[Candidate skipped this question]",
             })
             
             resume = crud.get_resume(resume_id)
@@ -388,20 +411,24 @@ with col_main:
                 profile,
             ))
             
-            # Check completion
-            conductor = service.get_conductor(st.session_state.session_id)
-            prog = conductor.get_progress()
-            
-            if prog["current_round"] == "completed" or prog["questions_asked"] >= prog["total_questions"]:
-                asyncio.run(service.end_session(
-                    st.session_state.session_id, profile
-                ))
-                st.session_state.interview_completed = True
-                st.rerun()
+            update_interview_state(st.session_state.session_id, {
+                "questions_answered": state.get("questions_answered", 0) + 1
+            })
             
             next_q = asyncio.run(service.get_next_question(
                 st.session_state.session_id, profile
             ))
+            
+            # Re-check progress
+            conductor = service.get_conductor(st.session_state.session_id)
+            if conductor.current_round == "coding":
+                update_interview_state(st.session_state.session_id, {
+                    "current_stage": "coding_round",
+                    "behavioral_completed": True,
+                    "technical_completed": True
+                })
+                st.switch_page("ui/pages/coding.py")
+            
             audio_file = asyncio.run(get_audio_service().generate_speech(
                 next_q.question_text, next_q.id
             ))

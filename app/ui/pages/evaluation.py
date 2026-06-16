@@ -4,19 +4,32 @@ import pandas as pd
 import plotly.express as px
 from app.database import crud
 from app.evaluation.report import generate_markdown_report
-
+from app.utils.state_machine import sync_st_state
 
 st.title("📈 Interview Evaluation & Reports")
+
+state = sync_st_state()
 
 sessions = crud.get_all_sessions()
 completed_sessions = [s for s in sessions if s.status == "completed"]
 
 if not completed_sessions:
-    st.info("No completed interview sessions found. Please complete an interview first.")
-    st.stop()
+    if state.get("current_stage") != "completed" and state.get("current_stage") != "resume_uploaded":
+        st.info("Your interview is currently in progress. Complete it to view the results.")
+        if st.button("Return to Interview"):
+            if state.get("current_stage") == "coding_round":
+                st.switch_page("ui/pages/coding.py")
+            else:
+                st.switch_page("ui/pages/interview.py")
+        st.stop()
+    else:
+        st.info("No completed interview sessions found. Please complete an interview first.")
+        st.stop()
 
 session_opts = {f"{s.id[:8]} - {s.created_at[:16]}": s.id for s in completed_sessions}
-selected_opt = st.selectbox("Select an Interview Session", list(session_opts.keys()))
+
+# Select box for session
+selected_opt = st.selectbox("Select an Interview Session", list(session_opts.keys()), index=0)
 session_id = session_opts[selected_opt]
 
 report = crud.get_feedback_report(session_id)
@@ -26,7 +39,7 @@ answers = crud.get_answers_for_session(session_id)
 session = crud.get_session(session_id)
 
 if not report:
-    st.warning("Report is still generating or not found for this session.")
+    st.warning("Report is still generating or not found for this session. It may take a minute after completion.")
     st.stop()
 
 # ── Candidate Info ────────────────────────────────────────────
