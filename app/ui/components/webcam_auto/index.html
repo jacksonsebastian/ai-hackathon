@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Webcam Auto Capture Component</title>
+    <!-- Streamlit component library -->
+    <script src="https://cdn.jsdelivr.net/npm/streamlit-component-lib@1.3.0/dist/streamlit.js"></script>
+    <style>
+        /* Keep it hidden from the UI but allow it to run in DOM */
+        body { margin: 0; padding: 0; overflow: hidden; background: transparent; }
+        video { display: none; }
+        canvas { display: none; }
+    </style>
+</head>
+<body>
+    <video id="video" width="640" height="480" autoplay playsinline></video>
+    <canvas id="canvas" width="640" height="480"></canvas>
+
+    <script>
+        let intervalId = null;
+        let captureIntervalMs = 30000; // Default 30s
+        let isWebcamReady = false;
+
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const context = canvas.getContext('2d');
+
+        // Function to capture frame and send back to Python
+        function captureFrame() {
+            if (!isWebcamReady) return;
+            
+            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+            
+            // Send value back to Python Streamlit app
+            Streamlit.setComponentValue(dataUrl);
+        }
+
+        function onRender(event) {
+            const data = event.detail;
+            
+            if (data.args && data.args.capture_interval_seconds) {
+                const newInterval = data.args.capture_interval_seconds * 1000;
+                
+                // If interval changed or not set, setup the timer
+                if (newInterval !== captureIntervalMs || !intervalId) {
+                    captureIntervalMs = newInterval;
+                    if (intervalId) clearInterval(intervalId);
+                    
+                    intervalId = setInterval(captureFrame, captureIntervalMs);
+                }
+            }
+            
+            // Tell Streamlit we finished rendering
+            Streamlit.setFrameHeight(0);
+        }
+
+        // Setup Webcam
+        async function initWebcam() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+                video.srcObject = stream;
+                
+                video.addEventListener('loadedmetadata', () => {
+                    video.play();
+                    isWebcamReady = true;
+                    // Send an initial ready state or first frame
+                    setTimeout(captureFrame, 2000); 
+                });
+            } catch (err) {
+                console.error("Webcam access denied or unavailable", err);
+                // Return a dummy value to avoid breaking Python if it waits forever
+                Streamlit.setComponentValue("error:webcam_denied");
+            }
+        }
+
+        // Initialize component
+        Streamlit.events.addEventListener(Streamlit.RENDER_EVENT, onRender);
+        Streamlit.setComponentReady();
+        
+        // Start webcam silently
+        initWebcam();
+    </script>
+</body>
+</html>

@@ -108,6 +108,94 @@ with col_w:
     else:
         st.write("No specific weaknesses noted.")
 
+# ── Interview Integrity Report ───────────────────────────────
+
+st.markdown("---")
+st.subheader("🛡️ Interview Integrity Report")
+
+snapshots = crud.get_snapshots_for_session(session_id)
+
+if not snapshots:
+    st.info("No video proctoring data available for this session.")
+else:
+    # Calculate integrity score and risk level based on AI analysis
+    analyzed_snapshots = [s for s in snapshots if s.analysis_json]
+    
+    if analyzed_snapshots:
+        high_risk_count = 0
+        medium_risk_count = 0
+        
+        for s in analyzed_snapshots:
+            obs = s.analysis_json
+            # Simple heuristic for risk calculation
+            if obs.get("multiple_people_detected") or obs.get("phone_detected") or obs.get("additional_screen_detected"):
+                high_risk_count += 1
+            elif obs.get("looking_away_frequency") == "high" or obs.get("engagement_level") == "low" or not obs.get("candidate_visible"):
+                medium_risk_count += 1
+                
+        # Base score 100
+        integrity_score = 100 - (high_risk_count * 15) - (medium_risk_count * 5)
+        integrity_score = max(0, integrity_score)
+        
+        if integrity_score >= 90:
+            risk_level = "🟢 LOW RISK"
+        elif integrity_score >= 70:
+            risk_level = "🟡 MEDIUM RISK"
+        else:
+            risk_level = "🔴 HIGH RISK"
+            
+        int_col1, int_col2 = st.columns(2)
+        with int_col1:
+            st.metric("Integrity Score", f"{integrity_score}/100")
+        with int_col2:
+            st.markdown(f"**Risk Level:** {risk_level}")
+            
+        st.caption(f"Based on {len(analyzed_snapshots)} analyzed snapshots out of {len(snapshots)} total.")
+        
+    else:
+        st.info(f"{len(snapshots)} snapshots captured. AI Analysis was disabled or unavailable.")
+
+    # Render Evidence Gallery Timeline
+    with st.expander("📸 View Evidence Gallery & Timeline"):
+        st.write("Automatically captured webcam snapshots from the interview.")
+        
+        # Display in a grid of 3 columns
+        cols = st.columns(3)
+        for i, s in enumerate(snapshots):
+            with cols[i % 3]:
+                # Streamlit displays base64 natively if passed as markdown image or st.image using raw bytes
+                # But st.image accepts base64 data URIs in newer Streamlit versions, or we can just parse it
+                import base64
+                from io import BytesIO
+                from PIL import Image
+                
+                try:
+                    # Parse data URI: data:image/jpeg;base64,.....
+                    if "," in s.image_blob:
+                        header, base64_data = s.image_blob.split(",", 1)
+                        image_bytes = base64.b64decode(base64_data)
+                        img = Image.open(BytesIO(image_bytes))
+                        st.image(img, use_column_width=True)
+                    else:
+                        st.error("Invalid image format.")
+                except Exception as e:
+                    st.error("Error loading snapshot.")
+                
+                st.caption(f"**Time:** {s.captured_at[11:19]} | **Round:** {s.current_round.replace('_', ' ').title()} Q{s.question_number}")
+                
+                if s.analysis_json:
+                    obs = s.analysis_json
+                    flags = []
+                    if obs.get("multiple_people_detected"): flags.append("Multiple People")
+                    if obs.get("phone_detected"): flags.append("Phone Detected")
+                    if not obs.get("candidate_visible"): flags.append("Candidate Not Visible")
+                    if obs.get("looking_away_frequency") == "high": flags.append("Looking Away")
+                    
+                    if flags:
+                        st.markdown(f"⚠️ :red[{', '.join(flags)}]")
+                    else:
+                        st.markdown("✅ No unusual activity")
+
 # ── Full Q&A Transcript (Hidden by default) ──────────────────
 
 st.markdown("---")

@@ -97,6 +97,14 @@ class InterviewConfig:
 
 
 @dataclass
+class VideoMonitoringConfig:
+    """Video Proctoring and Integrity Analysis Settings."""
+    enabled: bool = False
+    capture_interval_seconds: int = 30
+    enable_ai_analysis: bool = True
+
+
+@dataclass
 class Settings:
     """
     Master configuration for the AI Interviewer Agent System.
@@ -122,6 +130,7 @@ class Settings:
     rag: RAGConfig = field(default_factory=RAGConfig)
     agent: AgentConfig = field(default_factory=AgentConfig)
     interview: InterviewConfig = field(default_factory=InterviewConfig)
+    video_monitoring: VideoMonitoringConfig = field(default_factory=VideoMonitoringConfig)
 
     def __post_init__(self):
         """Apply environment variable overrides."""
@@ -147,6 +156,13 @@ class Settings:
             self.agent.coding_question_count = int(os.getenv("CODING_QUESTION_COUNT"))
         if os.getenv("ENABLE_ADAPTIVE_DIFFICULTY"):
             self.agent.enable_adaptive_difficulty = os.getenv("ENABLE_ADAPTIVE_DIFFICULTY").lower() == "true"
+            
+        if os.getenv("VIDEO_MONITORING_ENABLED"):
+            self.video_monitoring.enabled = os.getenv("VIDEO_MONITORING_ENABLED").lower() == "true"
+        if os.getenv("VIDEO_AI_ANALYSIS_ENABLED"):
+            self.video_monitoring.enable_ai_analysis = os.getenv("VIDEO_AI_ANALYSIS_ENABLED").lower() == "true"
+        if os.getenv("VIDEO_CAPTURE_INTERVAL"):
+            self.video_monitoring.capture_interval_seconds = int(os.getenv("VIDEO_CAPTURE_INTERVAL"))
             
         self._ensure_directories()
 

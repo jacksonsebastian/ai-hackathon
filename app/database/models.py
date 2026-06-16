@@ -306,3 +306,30 @@ class AgentLog:
         if data.get("metadata") and isinstance(data["metadata"], str):
             data["metadata"] = json.loads(data["metadata"])
         return cls(**data)
+
+
+@dataclass
+class InterviewSnapshot:
+    """Webcam snapshot for interview integrity analysis."""
+    id: str
+    session_id: str
+    image_blob: str
+    candidate_id: str = ""
+    captured_at: str = ""
+    question_number: Optional[int] = None
+    current_round: str = ""
+    image_format: str = "jpeg"
+    analysis_json: dict = field(default_factory=dict)
+    created_at: str = ""
+
+    def to_db_row(self) -> dict:
+        d = asdict(self)
+        d["analysis_json"] = json.dumps(d["analysis_json"])
+        return d
+
+    @classmethod
+    def from_db_row(cls, row: dict) -> InterviewSnapshot:
+        data = dict(row)
+        if data.get("analysis_json") and isinstance(data["analysis_json"], str):
+            data["analysis_json"] = json.loads(data["analysis_json"])
+        return cls(**data)

@@ -245,6 +245,43 @@ with col_side:
         st.markdown(f"**📝** {info['interview_type']}")
     
     st.markdown("---")
+    
+    # Video Monitoring
+    if settings.video_monitoring.enabled:
+        from app.ui.components.webcam_auto import webcam_auto
+        st.caption("📷 Proctoring Active")
+        
+        # Inject the invisible component
+        captured_frame = webcam_auto(
+            capture_interval_seconds=settings.video_monitoring.capture_interval_seconds,
+            key="webcam_auto_proctor"
+        )
+        
+        if captured_frame and captured_frame.startswith("data:image"):
+            # We got a new frame. Avoid saving duplicates by checking session state
+            if st.session_state.get("last_captured_frame") != captured_frame:
+                st.session_state["last_captured_frame"] = captured_frame
+                
+                # Save snapshot async
+                import asyncio
+                from app.database.models import InterviewSnapshot
+                from app.utils.helpers import generate_id
+                
+                snapshot = InterviewSnapshot(
+                    id=generate_id(),
+                    session_id=st.session_state.session_id,
+                    image_blob=captured_frame,
+                    question_number=progress.get("questions_asked", 0) + 1,
+                    current_round=progress.get("current_round", "")
+                )
+                
+                if settings.video_monitoring.enable_ai_analysis:
+                    from app.agents.video_analyzer import VideoAnalyzerAgent
+                    analyzer = VideoAnalyzerAgent(session_id=st.session_state.session_id)
+                    analysis = asyncio.run(analyzer.analyze_snapshot(captured_frame))
+                    snapshot.analysis_json = analysis
+                
+                crud.create_snapshot(snapshot)
 
 with col_main:
     # ── Chat History ──────────────────────────────────────────

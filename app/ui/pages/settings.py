@@ -62,6 +62,12 @@ tech_q = st.slider("Technical Questions", 1, 15, settings.agent.technical_questi
 behav_q = st.slider("Behavioral Questions", 1, 10, settings.agent.behavioral_question_count)
 code_q = st.slider("Coding Questions", 0, 5, settings.agent.coding_question_count)
 
+st.markdown("---")
+st.header("Video Proctoring & Integrity")
+enable_video = st.checkbox("Enable Video Monitoring", value=settings.video_monitoring.enabled)
+enable_ai_video = st.checkbox("Enable AI Integrity Analysis", value=settings.video_monitoring.enable_ai_analysis, disabled=not enable_video)
+video_interval = st.selectbox("Snapshot Capture Interval", [10, 15, 30, 60, 120], index=[10, 15, 30, 60, 120].index(settings.video_monitoring.capture_interval_seconds) if settings.video_monitoring.capture_interval_seconds in [10, 15, 30, 60, 120] else 2, format_func=lambda x: f"Every {x} seconds", disabled=not enable_video)
+
 if st.button("Save Configuration", type="primary"):
     import dotenv
     env_path = os.path.join(os.getcwd(), ".env")
@@ -74,6 +80,9 @@ if st.button("Save Configuration", type="primary"):
     dotenv.set_key(env_path, "BEHAVIORAL_QUESTION_COUNT", str(behav_q))
     dotenv.set_key(env_path, "CODING_QUESTION_COUNT", str(code_q))
     dotenv.set_key(env_path, "ENABLE_ADAPTIVE_DIFFICULTY", str(adaptive).lower())
+    dotenv.set_key(env_path, "VIDEO_MONITORING_ENABLED", str(enable_video).lower())
+    dotenv.set_key(env_path, "VIDEO_AI_ANALYSIS_ENABLED", str(enable_ai_video).lower())
+    dotenv.set_key(env_path, "VIDEO_CAPTURE_INTERVAL", str(video_interval))
     
     # Update active settings in memory
     settings.vllm.base_url = vllm_url
@@ -83,6 +92,10 @@ if st.button("Save Configuration", type="primary"):
     settings.agent.technical_question_count = tech_q
     settings.agent.behavioral_question_count = behav_q
     settings.agent.coding_question_count = code_q
+    
+    settings.video_monitoring.enabled = enable_video
+    settings.video_monitoring.enable_ai_analysis = enable_ai_video
+    settings.video_monitoring.capture_interval_seconds = video_interval
     
     # Store timer config in session state
     st.session_state["timer_enabled"] = enable_timer

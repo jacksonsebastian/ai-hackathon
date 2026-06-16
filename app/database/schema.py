@@ -206,6 +206,24 @@ CREATE TABLE IF NOT EXISTS feedback_reports (
 );
 
 -- ============================================================
+-- INTERVIEW SNAPSHOTS TABLE
+-- Webcam captures for integrity analysis
+-- ============================================================
+CREATE TABLE IF NOT EXISTS interview_snapshots (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    candidate_id TEXT,
+    captured_at TEXT NOT NULL DEFAULT (datetime('now')),
+    question_number INTEGER,
+    current_round TEXT,
+    image_blob TEXT NOT NULL, -- Base64 encoded image
+    image_format TEXT DEFAULT 'jpeg',
+    analysis_json TEXT,       -- JSON: AI vision analysis results
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (session_id) REFERENCES interview_sessions(id) ON DELETE CASCADE
+);
+
+-- ============================================================
 -- AGENT LOGS TABLE
 -- Full audit trail of agent activity
 -- ============================================================
@@ -245,6 +263,7 @@ CREATE INDEX IF NOT EXISTS idx_feedback_session ON feedback_reports(session_id);
 CREATE INDEX IF NOT EXISTS idx_agent_logs_session ON agent_logs(session_id);
 CREATE INDEX IF NOT EXISTS idx_agent_logs_agent ON agent_logs(agent_name);
 CREATE INDEX IF NOT EXISTS idx_agent_logs_time ON agent_logs(created_at);
+CREATE INDEX IF NOT EXISTS idx_snapshots_session ON interview_snapshots(session_id);
 """
 
 
@@ -289,7 +308,7 @@ def get_schema_info() -> dict:
         "tables": [
             "resumes", "interview_sessions", "questions", "answers",
             "evaluations", "coding_submissions", "embeddings_metadata",
-            "feedback_reports", "agent_logs"
+            "feedback_reports", "agent_logs", "interview_snapshots"
         ],
         "version": "1.0.0",
         "journal_mode": settings.database.journal_mode,

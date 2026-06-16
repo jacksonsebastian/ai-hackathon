@@ -9,6 +9,7 @@ from app.database.connection import get_db
 from app.database.models import (
     Resume, InterviewSession, Question, Answer,
     Evaluation, CodingSubmission, FeedbackReport, AgentLog,
+    InterviewSnapshot
 )
 from app.utils.helpers import generate_id, now_utc
 from app.utils.logger import get_db_logger
@@ -265,6 +266,32 @@ def get_agent_logs_for_session(session_id: str) -> list[AgentLog]:
             (session_id,)
         ).fetchall()
         return [AgentLog.from_db_row(dict(r)) for r in rows]
+
+
+# ── Snapshot CRUD ──────────────────────────────────────────────
+
+def create_snapshot(snapshot: InterviewSnapshot) -> InterviewSnapshot:
+    if not snapshot.id:
+        snapshot.id = generate_id()
+    if not snapshot.created_at:
+        snapshot.created_at = now_utc()
+    if not snapshot.captured_at:
+        snapshot.captured_at = now_utc()
+    with get_db() as conn:
+        row = snapshot.to_db_row()
+        cols = ", ".join(row.keys())
+        placeholders = ", ".join(["?"] * len(row))
+        conn.execute(f"INSERT INTO interview_snapshots ({cols}) VALUES ({placeholders})", list(row.values()))
+    return snapshot
+
+
+def get_snapshots_for_session(session_id: str) -> list[InterviewSnapshot]:
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT * FROM interview_snapshots WHERE session_id = ? ORDER BY captured_at",
+            (session_id,)
+        ).fetchall()
+        return [InterviewSnapshot.from_db_row(dict(r)) for r in rows]
 
 
 # ── Dashboard Stats ──────────────────────────────────────────
