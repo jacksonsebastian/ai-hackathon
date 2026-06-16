@@ -249,13 +249,13 @@ with col_side:
     
     # Video Monitoring
     if settings.video_monitoring.enabled:
-        from app.ui.components.webcam_auto import webcam_auto
+        from app.ui.components.webcam_proctor import webcam_proctor
         st.caption("📷 Proctoring Active")
         
         # Inject the invisible component
-        captured_frame = webcam_auto(
+        captured_frame = webcam_proctor(
             capture_interval_seconds=settings.video_monitoring.capture_interval_seconds,
-            key="webcam_auto_proctor"
+            key="webcam_proctor_v2"
         )
         
         if captured_frame and captured_frame.startswith("data:image"):
