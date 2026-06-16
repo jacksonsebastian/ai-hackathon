@@ -4,6 +4,9 @@ AI Interviewer – Cloud Model Server
 FastAPI server that wraps Whisper Large V3, Kokoro TTS, and BGE-M3.
 Runs on Jupyter Cloud GPU environment alongside vLLM (DeepSeek-R1).
 
+IMPORTANT: Uses HuggingFace Transformers pipeline for Whisper (ROCm compatible).
+           Does NOT use faster_whisper/ctranslate2 (NVIDIA CUDA only).
+
 Endpoints:
     POST /transcribe     — Whisper Large V3 (audio → text)
     POST /synthesize     — Kokoro TTS (text → audio)
@@ -12,11 +15,6 @@ Endpoints:
     GET  /status         — Detailed model status
 
 Usage:
-    uvicorn model_server:app --host 0.0.0.0 --port 8001  # Whisper
-    uvicorn model_server:app --host 0.0.0.0 --port 8002  # Kokoro
-    uvicorn model_server:app --host 0.0.0.0 --port 8003  # BGE-M3
-
-    OR run ALL on a single port:
     uvicorn model_server:app --host 0.0.0.0 --port 8001
 """
 
@@ -34,44 +32,54 @@ from pydantic import BaseModel
 
 app = FastAPI(
     title="AI Interviewer – Cloud Model Server",
-    description="Whisper V3 + Kokoro TTS + BGE-M3 on GPU",
+    description="Whisper V3 + Kokoro TTS + BGE-M3 on GPU (ROCm compatible)",
     version="1.0.0",
 )
 
 # ── Global Model Holders ─────────────────────────────────────
 
-_whisper_model = None
+_whisper_pipe = None
 _kokoro_pipeline = None
 _embedding_model = None
 
 
 # ══════════════════════════════════════════════════════════════
-# WHISPER LARGE V3 — Speech-to-Text
+# WHISPER LARGE V3 — Speech-to-Text (using transformers pipeline)
 # ══════════════════════════════════════════════════════════════
 
 def get_whisper():
-    """Lazy-load Whisper Large V3 on GPU."""
-    global _whisper_model
-    if _whisper_model is not None:
-        return _whisper_model
-    from faster_whisper import WhisperModel
-    print("[Whisper] Loading openai/whisper-large-v3 on CUDA...")
-    _whisper_model = WhisperModel(
-        "large-v3",
-        device="cuda",
-        compute_type="float16",
+    """Lazy-load Whisper Large V3 using HuggingFace Transformers pipeline.
+    
+    Uses transformers + PyTorch (ROCm compatible).
+    Does NOT use faster_whisper/ctranslate2 (NVIDIA only).
+    """
+    global _whisper_pipe
+    if _whisper_pipe is not None:
+        return _whisper_pipe
+    
+    import torch
+    from transformers import pipeline
+    
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    dtype = torch.float16 if device == "cuda" else torch.float32
+    
+    print(f"[Whisper] Loading openai/whisper-large-v3 on {device} ({dtype})...")
+    _whisper_pipe = pipeline(
+        "automatic-speech-recognition",
+        model="openai/whisper-large-v3",
+        torch_dtype=dtype,
+        device=device,
     )
     print("[Whisper] Model loaded successfully!")
-    return _whisper_model
+    return _whisper_pipe
 
 
 @app.post("/transcribe")
 async def transcribe_audio(
     audio: UploadFile = File(...),
     language: str = Query("en"),
-    beam_size: int = Query(5),
 ):
-    """Transcribe audio using Whisper Large V3."""
+    """Transcribe audio using Whisper Large V3 (transformers pipeline)."""
     start = time.time()
     
     # Save uploaded audio to temp file
@@ -81,21 +89,22 @@ async def transcribe_audio(
         tmp_path = tmp.name
 
     try:
-        model = get_whisper()
-        segments, info = model.transcribe(
+        pipe = get_whisper()
+        
+        result = pipe(
             tmp_path,
-            beam_size=beam_size,
-            language=language,
-            vad_filter=True,
+            generate_kwargs={"language": language},
+            return_timestamps=True,
         )
-        text = " ".join(segment.text.strip() for segment in segments)
+        
+        text = result.get("text", "").strip()
         elapsed = time.time() - start
 
         return {
             "text": text,
-            "language": info.language,
-            "language_probability": round(info.language_probability, 3),
-            "duration": round(info.duration, 2),
+            "language": language,
+            "language_probability": 1.0,
+            "duration": round(elapsed, 2),
             "processing_time": round(elapsed, 2),
             "model": "openai/whisper-large-v3",
         }
@@ -176,9 +185,13 @@ def get_embedding_model():
     global _embedding_model
     if _embedding_model is not None:
         return _embedding_model
+    
+    import torch
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    
     from sentence_transformers import SentenceTransformer
-    print("[BGE-M3] Loading BAAI/bge-m3 on CUDA...")
-    _embedding_model = SentenceTransformer("BAAI/bge-m3", device="cuda")
+    print(f"[BGE-M3] Loading BAAI/bge-m3 on {device}...")
+    _embedding_model = SentenceTransformer("BAAI/bge-m3", device=device)
     print("[BGE-M3] Model loaded successfully!")
     return _embedding_model
 
@@ -219,11 +232,14 @@ async def health_check():
 @app.get("/status")
 async def detailed_status():
     """Detailed status of all loaded models."""
+    import torch
+    device = "cuda (ROCm)" if torch.cuda.is_available() else "cpu"
     return {
         "whisper": {
-            "loaded": _whisper_model is not None,
+            "loaded": _whisper_pipe is not None,
             "model": "openai/whisper-large-v3",
-            "device": "cuda",
+            "backend": "transformers (ROCm compatible)",
+            "device": device,
         },
         "kokoro": {
             "loaded": _kokoro_pipeline is not None,
@@ -232,7 +248,7 @@ async def detailed_status():
         "bge_m3": {
             "loaded": _embedding_model is not None,
             "model": "BAAI/bge-m3",
-            "device": "cuda",
+            "device": device,
         },
     }
 
