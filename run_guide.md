@@ -1,4 +1,4 @@
-# AI Interviewer Platform - Step-by-Step Run Guide
+# InterviewGPT Platform - Step-by-Step Run Guide
 
 This guide walks you through cloning the repository and setting up both the **Cloud GPU environment** (for running the AI models) and the **Local environment** (for running the Streamlit UI).
 

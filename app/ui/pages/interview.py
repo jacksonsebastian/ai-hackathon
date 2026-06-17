@@ -298,7 +298,7 @@ with col_main:
     current_msg = st.session_state.messages[-1] if st.session_state.messages else None
     
     if current_msg and current_msg.get("role") == "agent":
-        st.markdown("### 🤖 AI Interviewer asks:")
+        st.markdown("### 🤖 InterviewGPT asks:")
         st.info(f"**{current_msg['content']}**")
         
         # Play question audio (Kokoro TTS)

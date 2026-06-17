@@ -5,7 +5,7 @@ sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 import streamlit as st
 
-st.set_page_config(page_title="AI Interviewer", layout="wide", page_icon="🤖")
+st.set_page_config(page_title="InterviewGPT", layout="wide", page_icon="🤖")
 
 from app.ui.styles.theme import apply_custom_theme
 from app.config import settings

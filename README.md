@@ -1,4 +1,4 @@
-# AI Interviewer Agent Platform
+# InterviewGPT Platform
 
 AI-powered interview platform using multi-agent orchestration with real LLM inference.
 

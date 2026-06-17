@@ -5,7 +5,7 @@ from app.database import crud
 from app.ui.components.metrics import render_metric_card
 
 
-st.title("📊 Platform Dashboard")
+st.title("📊 InterviewGPT Dashboard")
 
 stats = crud.get_dashboard_stats()
 
