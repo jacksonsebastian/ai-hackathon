@@ -1,109 +1,196 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <meta charset="utf-8">
-    <title>Webcam Auto Capture Component</title>
-    <!-- Streamlit component library -->
-    <script src="https://cdn.jsdelivr.net/npm/streamlit-component-lib@1.3.0/dist/streamlit.js"></script>
-    <style>
-        body { 
-            margin: 0; 
-            padding: 0; 
-            overflow: hidden; 
-            background: transparent; 
-            display: flex;
-            justify-content: center;
-        }
-        video { 
-            width: 100%; 
-            max-width: 300px;
-            border-radius: 12px;
-            border: 2px solid #333;
-            background-color: #111;
-            transform: scaleX(-1); /* Mirror effect */
-        }
-        canvas { display: none; }
-    </style>
+  <meta charset="UTF-8" />
+  <title>Webcam Proctor</title>
+
+  <script src="https://unpkg.com/streamlit-component-lib@1.4.0/dist/index.js"></script>
+
+  <style>
+    body {
+      margin: 0;
+      padding: 10px;
+      font-family: Arial, sans-serif;
+      background: transparent;
+    }
+
+    .container {
+      border: 1px solid #dddddd;
+      border-radius: 10px;
+      padding: 12px;
+      background: #ffffff;
+      box-sizing: border-box;
+    }
+
+    video {
+      width: 100%;
+      max-width: 520px;
+      border-radius: 8px;
+      background: #000000;
+      display: block;
+    }
+
+    canvas {
+      display: none;
+    }
+
+    .status {
+      margin-top: 8px;
+      font-size: 14px;
+      color: #444444;
+      line-height: 1.4;
+    }
+
+    .ok {
+      color: #0a7a0a;
+      font-weight: bold;
+    }
+
+    .error {
+      color: #b00020;
+      font-weight: bold;
+    }
+  </style>
 </head>
+
 <body>
-        <div id="error-msg" style="color: red; padding: 10px; font-family: sans-serif; display: none; background: #222; border-radius: 8px;"></div>
+  <div class="container">
     <video id="video" autoplay playsinline muted></video>
-    <canvas id="canvas" width="640" height="480"></canvas>
+    <canvas id="canvas"></canvas>
+    <div id="status" class="status">Initializing webcam...</div>
+  </div>
 
-    <script>
-        let intervalId = null;
-        let captureIntervalMs = 30000; // Default 30s
-        let isWebcamReady = false;
+  <script>
+    const Streamlit = window.Streamlit;
 
-        const video = document.getElementById('video');
-        const canvas = document.getElementById('canvas');
-        const context = canvas.getContext('2d');
-        const errorMsg = document.getElementById('error-msg');
+    const video = document.getElementById("video");
+    const canvas = document.getElementById("canvas");
+    const statusEl = document.getElementById("status");
 
-        // Function to capture frame and send back to Python
-        function captureFrame() {
-            if (!isWebcamReady) return;
-            
-            context.drawImage(video, 0, 0, canvas.width, canvas.height);
-            const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
-            
-            // Send value back to Python Streamlit app
-            Streamlit.setComponentValue(dataUrl);
+    let captureIntervalSeconds = 30;
+    let captureTimer = null;
+    let streamStarted = false;
+
+    function setStatus(message, cssClass) {
+      statusEl.className = "status " + (cssClass || "");
+      statusEl.innerText = message;
+      resizeFrame();
+    }
+
+    function resizeFrame() {
+      if (Streamlit) {
+        Streamlit.setFrameHeight(document.body.scrollHeight);
+      }
+    }
+
+    function sendValue(value) {
+      if (Streamlit) {
+        Streamlit.setComponentValue(value);
+      }
+    }
+
+    async function startCamera() {
+      if (streamStarted) {
+        return;
+      }
+
+      try {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          const message = "Camera API is not available in this browser.";
+          setStatus(message, "error");
+          sendValue({ error: message });
+          return;
         }
 
-        function onRender(event) {
-            const data = event.detail;
-            
-            if (data.args && data.args.capture_interval_seconds) {
-                const newInterval = data.args.capture_interval_seconds * 1000;
-                
-                // If interval changed or not set, setup the timer
-                if (newInterval !== captureIntervalMs || !intervalId) {
-                    captureIntervalMs = newInterval;
-                    if (intervalId) clearInterval(intervalId);
-                    
-                    intervalId = setInterval(captureFrame, captureIntervalMs);
-                }
-            }
-            
-            // Tell Streamlit we finished rendering, auto-resize to fit video
-            Streamlit.setFrameHeight();
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: false
+        });
+
+        video.srcObject = stream;
+        streamStarted = true;
+
+        setStatus(
+          "Webcam active. Capturing frame every " + captureIntervalSeconds + " seconds.",
+          "ok"
+        );
+
+        video.onloadedmetadata = function () {
+          resizeFrame();
+          captureFrame();
+        };
+
+        if (captureTimer) {
+          clearInterval(captureTimer);
         }
 
-        // Setup Webcam
-        async function initWebcam() {
-            try {
-                if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-                    throw new Error("navigator.mediaDevices API not available. Are you in a secure context (HTTPS)? Does the iframe have allow='camera'?");
-                }
+        captureTimer = setInterval(function () {
+          captureFrame();
+        }, captureIntervalSeconds * 1000);
 
-                const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-                video.srcObject = stream;
-                
-                video.addEventListener('loadedmetadata', () => {
-                    video.play();
-                    isWebcamReady = true;
-                    // Send an initial ready state or first frame
-                    setTimeout(captureFrame, 2000); 
-                });
-            } catch (err) {
-                console.error("Webcam access denied or unavailable", err);
-                errorMsg.style.display = 'block';
-                video.style.display = 'none';
-                errorMsg.innerHTML = "<strong>Webcam Error:</strong><br>" + err.message + "<br><br><small>If you are using Chrome, ensure you allow camera access for this site.</small>";
-                
-                // Return a dummy value to avoid breaking Python if it waits forever
-                Streamlit.setComponentValue("error:webcam_denied");
-                setTimeout(() => Streamlit.setFrameHeight(), 100);
-            }
+      } catch (error) {
+        let message = "Unable to access webcam: " + error.message;
+
+        if (
+          window.location.protocol !== "https:" &&
+          window.location.hostname !== "localhost" &&
+          window.location.hostname !== "127.0.0.1"
+        ) {
+          message += " Camera access requires HTTPS or localhost.";
         }
 
-        // Initialize component
-        Streamlit.events.addEventListener(Streamlit.RENDER_EVENT, onRender);
-        Streamlit.setComponentReady();
-        
-        // Start webcam silently
-        initWebcam();
-    </script>
+        setStatus(message, "error");
+        sendValue({ error: message });
+      }
+    }
+
+    function captureFrame() {
+      try {
+        if (!video.videoWidth || !video.videoHeight) {
+          return;
+        }
+
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+
+        const context = canvas.getContext("2d");
+        context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+        const imageData = canvas.toDataURL("image/jpeg", 0.75);
+
+        sendValue({
+          image: imageData,
+          timestamp: Date.now()
+        });
+
+        setStatus(
+          "Last frame captured at " + new Date().toLocaleTimeString(),
+          "ok"
+        );
+
+      } catch (error) {
+        const message = "Frame capture failed: " + error.message;
+        setStatus(message, "error");
+        sendValue({ error: message });
+      }
+    }
+
+    function onRender(event) {
+      const args = event.detail.args || {};
+
+      captureIntervalSeconds = Number(args.capture_interval_seconds || 30);
+
+      if (captureIntervalSeconds < 1) {
+        captureIntervalSeconds = 30;
+      }
+
+      startCamera();
+      resizeFrame();
+    }
+
+    Streamlit.events.addEventListener(Streamlit.RENDER_EVENT, onRender);
+    Streamlit.setComponentReady();
+    resizeFrame();
+  </script>
 </body>
 </html>
