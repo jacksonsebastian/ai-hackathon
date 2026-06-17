@@ -4,14 +4,13 @@
   <meta charset="UTF-8" />
   <title>Webcam Proctor</title>
 
-  <script src="https://unpkg.com/streamlit-component-lib@1.4.0/dist/index.js"></script>
-
   <style>
     body {
       margin: 0;
       padding: 10px;
       font-family: Arial, sans-serif;
       background: transparent;
+      box-sizing: border-box;
     }
 
     .container {
@@ -37,8 +36,8 @@
     .status {
       margin-top: 8px;
       font-size: 14px;
-      color: #444444;
       line-height: 1.4;
+      color: #444444;
     }
 
     .ok {
@@ -61,8 +60,6 @@
   </div>
 
   <script>
-    const Streamlit = window.Streamlit;
-
     const video = document.getElementById("video");
     const canvas = document.getElementById("canvas");
     const statusEl = document.getElementById("status");
@@ -71,26 +68,46 @@
     let captureTimer = null;
     let streamStarted = false;
 
+    function sendMessage(type, data) {
+      const message = Object.assign(
+        {
+          isStreamlitMessage: true,
+          type: type
+        },
+        data || {}
+      );
+
+      window.parent.postMessage(message, "*");
+    }
+
+    function setComponentReady() {
+      sendMessage("streamlit:componentReady", {
+        apiVersion: 1
+      });
+    }
+
+    function setFrameHeight() {
+      sendMessage("streamlit:setFrameHeight", {
+        height: document.body.scrollHeight
+      });
+    }
+
+    function setComponentValue(value) {
+      sendMessage("streamlit:setComponentValue", {
+        value: value,
+        dataType: "json"
+      });
+    }
+
     function setStatus(message, cssClass) {
       statusEl.className = "status " + (cssClass || "");
       statusEl.innerText = message;
-      resizeFrame();
-    }
-
-    function resizeFrame() {
-      if (Streamlit) {
-        Streamlit.setFrameHeight(document.body.scrollHeight);
-      }
-    }
-
-    function sendValue(value) {
-      if (Streamlit) {
-        Streamlit.setComponentValue(value);
-      }
+      setFrameHeight();
     }
 
     async function startCamera() {
       if (streamStarted) {
+        restartCaptureTimer();
         return;
       }
 
@@ -98,7 +115,7 @@
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
           const message = "Camera API is not available in this browser.";
           setStatus(message, "error");
-          sendValue({ error: message });
+          setComponentValue(null);
           return;
         }
 
@@ -116,17 +133,11 @@
         );
 
         video.onloadedmetadata = function () {
-          resizeFrame();
+          setFrameHeight();
           captureFrame();
         };
 
-        if (captureTimer) {
-          clearInterval(captureTimer);
-        }
-
-        captureTimer = setInterval(function () {
-          captureFrame();
-        }, captureIntervalSeconds * 1000);
+        restartCaptureTimer();
 
       } catch (error) {
         let message = "Unable to access webcam: " + error.message;
@@ -140,8 +151,18 @@
         }
 
         setStatus(message, "error");
-        sendValue({ error: message });
+        setComponentValue(null);
       }
+    }
+
+    function restartCaptureTimer() {
+      if (captureTimer) {
+        clearInterval(captureTimer);
+      }
+
+      captureTimer = setInterval(function () {
+        captureFrame();
+      }, captureIntervalSeconds * 1000);
     }
 
     function captureFrame() {
@@ -158,10 +179,7 @@
 
         const imageData = canvas.toDataURL("image/jpeg", 0.75);
 
-        sendValue({
-          image: imageData,
-          timestamp: Date.now()
-        });
+        setComponentValue(imageData);
 
         setStatus(
           "Last frame captured at " + new Date().toLocaleTimeString(),
@@ -169,28 +187,29 @@
         );
 
       } catch (error) {
-        const message = "Frame capture failed: " + error.message;
-        setStatus(message, "error");
-        sendValue({ error: message });
+        setStatus("Frame capture failed: " + error.message, "error");
+        setComponentValue(null);
       }
     }
 
     function onRender(event) {
-      const args = event.detail.args || {};
-
-      captureIntervalSeconds = Number(args.capture_interval_seconds || 30);
-
-      if (captureIntervalSeconds < 1) {
-        captureIntervalSeconds = 30;
+      if (!event.data || event.data.type !== "streamlit:render") {
+        return;
       }
 
+      const args = event.data.args || {};
+      const interval = Number(args.capture_interval_seconds || 30);
+
+      captureIntervalSeconds = interval > 0 ? interval : 30;
+
       startCamera();
-      resizeFrame();
+      setFrameHeight();
     }
 
-    Streamlit.events.addEventListener(Streamlit.RENDER_EVENT, onRender);
-    Streamlit.setComponentReady();
-    resizeFrame();
+    window.addEventListener("message", onRender);
+
+    setComponentReady();
+    setFrameHeight();
   </script>
 </body>
 </html>
