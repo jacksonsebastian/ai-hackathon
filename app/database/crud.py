@@ -268,18 +268,55 @@ def get_questions_for_session(session_id: str) -> list[Question]:
 # ── Answer CRUD ──────────────────────────────────────────────
 
 def create_answer(answer: Answer) -> Answer:
-    if not answer.id:
-        answer.id = generate_id()
+    """
+    Create or update an answer.
 
+    The answers table has a UNIQUE constraint on question_id.
+    Streamlit reruns can submit the same question more than once,
+    so this function updates the existing answer instead of crashing.
+    """
     answer.answer_length = len(answer.answer_text)
 
     if not answer.created_at:
         answer.created_at = now_utc()
 
     with get_db() as conn:
+        existing = conn.execute(
+            "SELECT * FROM answers WHERE question_id = ?",
+            (answer.question_id,)
+        ).fetchone()
+
+        if existing:
+            existing_id = existing["id"] if "id" in existing.keys() else existing[0]
+            answer.id = existing_id
+
+            row = answer.to_db_row()
+
+            # Do not update primary key/id column.
+            row.pop("id", None)
+
+            update_cols = ", ".join([f"{_quote_identifier(k)} = ?" for k in row.keys()])
+            values = list(row.values())
+            values.append(existing_id)
+
+            conn.execute(
+                f"UPDATE answers SET {update_cols} WHERE id = ?",
+                values
+            )
+
+            logger.info(
+                f"Updated existing answer for question_id={answer.question_id}"
+            )
+
+            return answer
+
+        if not answer.id:
+            answer.id = generate_id()
+
         row = answer.to_db_row()
-        cols = ", ".join(row.keys())
+        cols = ", ".join([_quote_identifier(col) for col in row.keys()])
         placeholders = ", ".join(["?"] * len(row))
+
         conn.execute(
             f"INSERT INTO answers ({cols}) VALUES ({placeholders})",
             list(row.values())
