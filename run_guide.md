@@ -49,21 +49,12 @@ The Streamlit front-end runs locally (or on a thin client) and connects to the A
 1. **Navigate to the local environment directory:**
    Ensure you are in the `ai-hackathon` folder on your local machine.
 
-2. **Create a Virtual Environment (Recommended):**
-   ```bash
-   python -m venv venv
-   # On Windows:
-   venv\Scripts\activate
-   # On macOS/Linux:
-   source venv/bin/activate
-   ```
-
-3. **Install Local Dependencies:**
+2. **Install Local Dependencies:**
    ```bash
    pip install -r requirements.txt
    ```
 
-4. **Configure Environment Variables:**
+3. **Configure Environment Variables:**
    ```bash
    cp .env.example .env
    ```
@@ -76,13 +67,13 @@ The Streamlit front-end runs locally (or on a thin client) and connects to the A
    EMBEDDING_API_URL=http://<YOUR_CLOUD_IP>:8001
    ```
 
-5. **Initialize the Database:**
+4. **Initialize the Database:**
    Before running the app for the first time, initialize the local SQLite database.
    ```bash
    python -c "from app.database.schema import init_db; init_db()"
    ```
 
-6. **Start the Streamlit App:**
+5. **Start the Streamlit App:**
    ```bash
    streamlit run app/main.py
    ```
