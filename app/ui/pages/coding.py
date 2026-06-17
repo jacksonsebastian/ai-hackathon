@@ -35,8 +35,6 @@ if not session_id or not resume_id:
 
 if "coding_problem" not in st.session_state:
     st.session_state.coding_problem = None
-if "coding_feedback" not in st.session_state:
-    st.session_state.coding_feedback = None
 
 col1, col2 = st.columns([1, 1])
 
@@ -84,11 +82,6 @@ with col2:
             else:
                 code_to_eval = code
                 
-            eval_res = asyncio.run(conductor.coding.evaluate_code(
-                str(st.session_state.coding_problem), code_to_eval, "python"
-            ))
-            st.session_state.coding_feedback = eval_res
-            
             # Save evaluation as part of session
             resume = crud.get_resume(resume_id)
             profile = resume.get_profile_text() if resume else ""
