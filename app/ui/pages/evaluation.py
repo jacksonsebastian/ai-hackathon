@@ -130,7 +130,7 @@ else:
             # Simple heuristic for risk calculation
             if obs.get("multiple_people_detected") or obs.get("phone_detected") or obs.get("additional_screen_detected"):
                 high_risk_count += 1
-            elif obs.get("looking_away_frequency") == "high" or obs.get("engagement_level") == "low" or not obs.get("candidate_visible"):
+            elif obs.get("is_looking_away") or obs.get("engagement_level") == "low" or not obs.get("candidate_visible"):
                 medium_risk_count += 1
                 
         # Base score 100
@@ -189,7 +189,7 @@ else:
                     if obs.get("multiple_people_detected"): flags.append("Multiple People")
                     if obs.get("phone_detected"): flags.append("Phone Detected")
                     if not obs.get("candidate_visible"): flags.append("Candidate Not Visible")
-                    if obs.get("looking_away_frequency") == "high": flags.append("Looking Away")
+                    if obs.get("is_looking_away"): flags.append("Looking Away")
                     
                     if flags:
                         st.markdown(f"⚠️ :red[{', '.join(flags)}]")

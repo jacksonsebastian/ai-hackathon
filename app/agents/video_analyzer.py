@@ -19,7 +19,7 @@ Analyze the image and return a JSON object with EXACTLY the following keys:
 {
     "candidate_visible": boolean,
     "multiple_people_detected": boolean,
-    "looking_away_frequency": "low" | "medium" | "high" | "unknown",
+    "is_looking_away": boolean,
     "phone_detected": boolean,
     "additional_screen_detected": boolean,
     "engagement_level": "low" | "medium" | "high",
@@ -51,7 +51,7 @@ class VideoAnalyzerAgent(BaseAgent):
             return {
                 "candidate_visible": True,
                 "multiple_people_detected": False,
-                "looking_away_frequency": "low",
+                "is_looking_away": False,
                 "phone_detected": False,
                 "additional_screen_detected": False,
                 "engagement_level": "high",
@@ -62,7 +62,7 @@ class VideoAnalyzerAgent(BaseAgent):
             return {
                 "candidate_visible": True,
                 "multiple_people_detected": False,
-                "looking_away_frequency": "unknown",
+                "is_looking_away": False,
                 "phone_detected": False,
                 "additional_screen_detected": False,
                 "engagement_level": "medium",
