@@ -191,7 +191,7 @@ CREATE TABLE IF NOT EXISTS feedback_reports (
     behavioral_score REAL CHECK(behavioral_score BETWEEN 0 AND 100),
     coding_score REAL CHECK(coding_score BETWEEN 0 AND 100),
     hiring_recommendation TEXT
-        CHECK(hiring_recommendation IN ('strong_hire', 'hire', 'maybe', 'no_hire')),
+        CHECK(hiring_recommendation IN ('strong_hire', 'hire', 'maybe', 'no_hire', 'PASS', 'FAIL', 'Pass', 'Fail')),
     strengths TEXT,           -- JSON array
     weaknesses TEXT,          -- JSON array
     improvement_roadmap TEXT, -- JSON: structured improvement plan
